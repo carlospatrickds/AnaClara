@@ -4,6 +4,8 @@ import numpy as np
 from datetime import datetime, date
 import json
 import io
+import re
+from PyPDF2 import PdfReader
 
 # Configuração da página
 st.set_page_config(
@@ -13,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dados históricos de salário mínimo e teto do INSS (exemplo simplificado)
+# Dados históricos de salário mínimo e teto do INSS
 dados_historicos = {
     "2023-01": {"piso": 1320.00, "teto": 7507.49},
     "2023-02": {"piso": 1320.00, "teto": 7507.49},
@@ -48,7 +50,13 @@ def parse_date(date_str):
         try:
             return datetime.strptime(date_str, '%Y-%m-%d').date()
         except:
-            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S').date()
+            try:
+                return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S').date()
+            except:
+                try:
+                    return datetime.strptime(date_str, '%d/%m/%Y').date()
+                except:
+                    return date.today()
     return date_str
 
 # Função para inicializar o estado da sessão
@@ -74,7 +82,31 @@ def init_session_state():
             'fator_previdenciario': 0.0
         }
 
-# Função para calcular tempo de contribuição CORRIGIDA
+# Função para consolidar períodos sobrepostos
+def consolidar_periodos(periodos_existentes, novo_periodo):
+    inicio_novo, fim_novo = novo_periodo
+    periodos_consolidados = []
+    
+    for periodo_existente in periodos_existentes:
+        inicio_existente, fim_existente = periodo_existente
+        
+        # Verificar se há sobreposição
+        if (inicio_novo <= fim_existente and fim_novo >= inicio_existente):
+            # Há sobreposição - consolidar
+            inicio_novo = min(inicio_novo, inicio_existente)
+            fim_novo = max(fim_novo, fim_existente)
+        else:
+            periodos_consolidados.append(periodo_existente)
+    
+    # Adicionar o período consolidado
+    periodos_consolidados.append((inicio_novo, fim_novo))
+    
+    # Reordenar
+    periodos_consolidados.sort(key=lambda x: x[0])
+    
+    return periodos_consolidados
+
+# Função para calcular tempo de contribuição
 def calcular_tempo_contribuicao(periodos):
     if not periodos:
         return 0, 0, 0
@@ -106,32 +138,7 @@ def calcular_tempo_contribuicao(periodos):
     
     return anos, meses, dias
 
-# Função para consolidar períodos sobrepostos
-def consolidar_periodos(periodos_existentes, novo_periodo):
-    inicio_novo, fim_novo = novo_periodo
-    periodos_consolidados = []
-    periodo_inserido = False
-    
-    for periodo_existente in periodos_existentes:
-        inicio_existente, fim_existente = periodo_existente
-        
-        # Verificar se há sobreposição
-        if (inicio_novo <= fim_existente and fim_novo >= inicio_existente):
-            # Há sobreposição - consolidar
-            inicio_novo = min(inicio_novo, inicio_existente)
-            fim_novo = max(fim_novo, fim_existente)
-        else:
-            periodos_consolidados.append(periodo_existente)
-    
-    # Adicionar o período consolidado
-    periodos_consolidados.append((inicio_novo, fim_novo))
-    
-    # Reordenar
-    periodos_consolidados.sort(key=lambda x: x[0])
-    
-    return periodos_consolidados
-
-# Função para calcular RMI CORRIGIDA
+# Função para calcular RMI
 def calcular_rmi(salarios, parametros):
     if salarios.empty:
         return 0.0
@@ -160,7 +167,7 @@ def calcular_rmi(salarios, parametros):
     
     return round(rmi, 2)
 
-# Função para salvar dados em JSON CORRIGIDA
+# Função para salvar dados em JSON
 def salvar_dados():
     dados = {
         'dados_segurado': st.session_state.dados_segurado,
@@ -182,7 +189,7 @@ def salvar_dados():
     }
     return json.dumps(dados, indent=2, default=str)
 
-# Função para carregar dados de JSON CORRIGIDA
+# Função para carregar dados de JSON
 def carregar_dados(arquivo):
     try:
         dados = json.load(arquivo)
@@ -213,7 +220,137 @@ def carregar_dados(arquivo):
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
 
-# Restante do código permanece igual...
+# Função para processar texto do CNIS
+def processar_texto_cnis(texto):
+    """
+    Processa o texto extraído do CNIS e extrai períodos e salários
+    """
+    try:
+        # Limpar dados existentes
+        st.session_state.periodos_contribuicao = []
+        st.session_state.salarios = pd.DataFrame(columns=['Competência', 'Salário', 'Origem'])
+        
+        periodos_extraidos = 0
+        salarios_extraidos = 0
+        
+        # Extrair informações pessoais
+        linhas = texto.split('\n')
+        
+        for i, linha in enumerate(linhas):
+            linha_limpa = linha.strip()
+            
+            # Extrair nome
+            if 'Nome:' in linha and len(linha_limpa) > 10:
+                nome_match = re.search(r'Nome:\s*(.+)', linha)
+                if nome_match and not st.session_state.dados_segurado['nome']:
+                    st.session_state.dados_segurado['nome'] = nome_match.group(1).strip()
+            
+            # Extrair data de nascimento
+            elif ('Data de nascimento:' in linha or 'Nascimento:' in linha) and st.session_state.dados_segurado['nascimento'] == date(1980, 1, 1):
+                nascimento_match = re.search(r'(\d{2}/\d{2}/\d{4})', linha)
+                if nascimento_match:
+                    try:
+                        data_nasc = datetime.strptime(nascimento_match.group(1), '%d/%m/%Y').date()
+                        st.session_state.dados_segurado['nascimento'] = data_nasc
+                    except:
+                        pass
+            
+            # Padrão para período de contribuição (exemplo: "01/2020 a 12/2023" ou "01/2020 - 12/2023")
+            if ('a' in linha or '-' in linha) and '/' in linha:
+                partes = re.split(r'[a\-]', linha, maxsplit=1)
+                if len(partes) == 2:
+                    try:
+                        inicio_str = partes[0].strip()
+                        fim_str = partes[1].strip()
+                        
+                        # Encontrar padrão de data MM/AAAA
+                        data_match_inicio = re.search(r'(\d{2}/\d{4})', inicio_str)
+                        data_match_fim = re.search(r'(\d{2}/\d{4})', fim_str)
+                        
+                        if data_match_inicio and data_match_fim:
+                            mes_inicio, ano_inicio = data_match_inicio.group(1).split('/')
+                            mes_fim, ano_fim = data_match_fim.group(1).split('/')
+                            
+                            inicio = date(int(ano_inicio), int(mes_inicio), 1)
+                            fim = date(int(ano_fim), int(mes_fim), 28)
+                            
+                            periodo = {
+                                'inicio': inicio,
+                                'fim': fim,
+                                'descricao': f'Período CNIS: {mes_inicio}/{ano_inicio} a {mes_fim}/{ano_fim}'
+                            }
+                            st.session_state.periodos_contribuicao.append(periodo)
+                            periodos_extraidos += 1
+                    except:
+                        continue
+            
+            # Padrão para salário (exemplo: "R$ 1.500,00" ou "1500,00")
+            elif 'R$' in linha or re.search(r'\d{1,3}(?:\.\d{3})*,\d{2}', linha):
+                try:
+                    # Extrair valor
+                    valor_str = re.search(r'R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})', linha)
+                    if valor_str:
+                        valor_limpo = valor_str.group(1).replace('.', '').replace(',', '.')
+                        valor = float(valor_limpo)
+                        
+                        # Tentar encontrar competência (exemplo: "01/2020")
+                        competencia_match = re.search(r'(\d{2}/\d{4})', linha)
+                        if competencia_match:
+                            competencia_str = competencia_match.group(1)
+                            mes, ano = competencia_str.split('/')
+                            competencia = date(int(ano), int(mes), 1)
+                        else:
+                            # Usar data padrão se não encontrar
+                            competencia = date.today().replace(day=1)
+                        
+                        salario = {
+                            'Competência': competencia,
+                            'Salário': valor,
+                            'Origem': 'CNIS'
+                        }
+                        st.session_state.salarios = pd.concat([
+                            st.session_state.salarios,
+                            pd.DataFrame([salario])
+                        ], ignore_index=True)
+                        salarios_extraidos += 1
+                except:
+                    continue
+        
+        st.success(f"""
+        **Processamento concluído!**
+        - Períodos extraídos: {periodos_extraidos}
+        - Salários extraídos: {salarios_extraidos}
+        - Nome: {st.session_state.dados_segurado['nome'] or 'Não encontrado'}
+        - Nascimento: {st.session_state.dados_segurado['nascimento'].strftime('%d/%m/%Y')}
+        """)
+        
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"Erro ao processar texto do CNIS: {e}")
+
+# Função para processar PDF do CNIS
+def processar_pdf_cnis(arquivo_pdf):
+    """
+    Processa o PDF do CNIS usando PyPDF2
+    """
+    try:
+        # Ler o PDF
+        pdf_reader = PdfReader(arquivo_pdf)
+        texto_completo = ""
+        
+        for pagina in pdf_reader.pages:
+            texto_pagina = pagina.extract_text()
+            if texto_pagina:
+                texto_completo += texto_pagina + "\n"
+        
+        if texto_completo.strip():
+            processar_texto_cnis(texto_completo)
+        else:
+            st.error("Não foi possível extrair texto do PDF. O arquivo pode ser digitalizado.")
+    
+    except Exception as e:
+        st.error(f"Erro ao processar PDF: {e}")
 
 # Inicializar estado da sessão
 init_session_state()
@@ -245,7 +382,8 @@ with st.sidebar:
             "Carregar Dados",
             type=["json"],
             key="file_uploader",
-            help="Carregar um arquivo JSON com dados salvos"
+            help="Carregar um arquivo JSON com dados salvos",
+            label_visibility="collapsed"
         )
         if arquivo_carregado is not None:
             carregar_dados(arquivo_carregado)
@@ -277,12 +415,13 @@ with st.sidebar:
         st.write(f"**Teto INSS:** R$ {dados_atuais['teto']:,.2f}")
 
 # Abas principais
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📋 Parâmetros", 
     "📅 Períodos", 
     "💰 Salários", 
     "⏱️ Cálculo Tempo", 
-    "📊 Cálculo RMI"
+    "📊 Cálculo RMI",
+    "📄 Importar CNIS"
 ])
 
 # Aba 1: Parâmetros
@@ -570,6 +709,79 @@ with tab5:
         st.line_chart(chart_data, x='Competência', y='Salário', use_container_width=True)
     else:
         st.warning("Nenhum salário cadastrado para calcular a RMI.")
+
+# Aba 6: Importar CNIS
+with tab6:
+    st.header("📄 Importar Dados do CNIS")
+    
+    st.info("""
+    **Instruções:** 
+    - Cole o texto extraído do CNIS ou faça upload do PDF
+    - O sistema irá extrair automaticamente os períodos e salários de contribuição
+    - Os dados pessoais (nome, data nascimento) também serão extraídos
+    """)
+    
+    # Modo de entrada
+    modo_entrada = st.radio(
+        "Selecione o modo de entrada:",
+        ["Colar texto", "Enviar PDF"],
+        horizontal=True
+    )
+    
+    if modo_entrada == "Colar texto":
+        texto_cnis = st.text_area(
+            "Cole o texto do CNIS aqui:",
+            height=300,
+            placeholder="Cole aqui o conteúdo textual extraído do CNIS...\n\nExemplo:\nNome: JOÃO DA SILVA\nData de nascimento: 15/03/1970\n01/2010 a 12/2020 - Empresa XYZ\nSalário: R$ 2.500,00"
+        )
+        
+        if st.button("Processar Texto CNIS", use_container_width=True):
+            if texto_cnis.strip():
+                with st.spinner("Processando texto do CNIS..."):
+                    processar_texto_cnis(texto_cnis)
+            else:
+                st.error("Por favor, cole o texto do CNIS")
+    
+    else:  # Modo PDF
+        st.info("**Atenção:** PDFs digitalizados (imagens) não funcionam. Use apenas PDFs com texto selecionável.")
+        
+        arquivo_pdf = st.file_uploader(
+            "Enviar PDF do CNIS",
+            type=["pdf"],
+            help="Faça upload do arquivo PDF do extrato CNIS (apenas PDFs com texto)"
+        )
+        
+        if arquivo_pdf is not None:
+            if st.button("Processar PDF CNIS", use_container_width=True):
+                with st.spinner("Processando PDF... Isso pode levar alguns segundos."):
+                    processar_pdf_cnis(arquivo_pdf)
+    
+    # Seção de visualização dos dados extraídos
+    if st.session_state.periodos_contribuicao or not st.session_state.salarios.empty:
+        st.markdown("---")
+        st.subheader("Dados Extraídos do CNIS")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Períodos Extraídos", len(st.session_state.periodos_contribuicao))
+        
+        with col2:
+            st.metric("Salários Extraídos", len(st.session_state.salarios))
+        
+        with col3:
+            nome = st.session_state.dados_segurado['nome']
+            st.metric("Nome Extraído", nome[:15] + "..." if len(nome) > 15 else nome if nome else "Não encontrado")
+        
+        # Botão para limpar dados do CNIS
+        if st.button("Limpar Dados do CNIS", type="secondary", use_container_width=True):
+            st.session_state.periodos_contribuicao = []
+            st.session_state.salarios = pd.DataFrame(columns=['Competência', 'Salário', 'Origem'])
+            st.session_state.dados_segurado['nome'] = ''
+            st.session_state.dados_segurado['nascimento'] = date(1980, 1, 1)
+            st.success("Dados do CNIS limpos!")
+            st.rerun()
+
 
 # Rodapé
 st.markdown("---")
