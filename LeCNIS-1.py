@@ -184,3 +184,26 @@ def processar_pdf_cnis(arquivo_pdf):
 init_session_state()
 st.title("🧮 Calculadora de Benefícios Previdenciários")
 st.markdown("---")
+
+
+import pandas as pd
+
+def processar_cnis(salarios_exibicao: pd.DataFrame) -> pd.DataFrame:
+    # Converte Competência para datetime de forma segura
+    if 'Competência' in salarios_exibicao.columns:
+        salarios_exibicao['Competência'] = pd.to_datetime(
+            salarios_exibicao['Competência'], 
+            format='%m/%Y',  # tenta ler no formato MM/AAAA
+            errors='coerce'  # se não conseguir, vira NaT
+        )
+
+        # Remove linhas com Competência inválida (opcional)
+        salarios_exibicao = salarios_exibicao.dropna(subset=['Competência'])
+
+        # Ordena por Competência (opcional, mas geralmente útil)
+        salarios_exibicao = salarios_exibicao.sort_values(by='Competência')
+
+        # Formata para exibição no padrão MM/AAAA
+        salarios_exibicao['Competência'] = salarios_exibicao['Competência'].dt.strftime('%m/%Y')
+
+    return salarios_exibicao
