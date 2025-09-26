@@ -30,3 +30,11 @@ workalendar
 # Observação:
 # Se algum script antigo usar a versão velha do fpdf (sem suporte a UTF-8),
 # atualize esses scripts para usar fpdf2, pois ambas têm a mesma interface: from fpdf import FPDF
+
+
+
+#streamlit>=1.50.0
+#pandas>=2.3.2
+plotly>=6.3.0
+#pdfplumber>=0.11.7
+python-dateutil>=2.8.2
