@@ -186,112 +186,32 @@ def consolidar_vinculos():
     else:
         st.session_state.salarios_consolidados = pd.DataFrame(columns=['Competência', 'Salário', 'Origem', 'Seq_Vinculo'])
 
-# NOVA FUNÇÃO: Processar texto CNIS melhorado
-def processar_texto_cnis_melhorado(texto):
-    try:
-        st.session_state.vinculos = {}
-        linhas = texto.split('\n')
-        
-        seq_atual = None
-        vinculo_atual = {}
-        processando_remuneracoes = False
-        remuneracoes_vinculo = []
-        
-        for i, linha in enumerate(linhas):
-            l = linha.strip()
-            
-            # Identifica início de um novo vínculo (linha com Seq.)
-            if re.match(r'^\d+\s+\d', l) and 'NIT' in linhas[i-1] if i > 0 else True:
-                if seq_atual is not None and vinculo_atual:
-                    # Salva o vínculo anterior antes de começar novo
-                    st.session_state.vinculos[seq_atual] = {
-                        'dados': vinculo_atual.copy(),
-                        'salarios': remuneracoes_vinculo.copy()
-                    }
-                
-                # Reinicia para novo vínculo
-                seq_atual = re.search(r'^(\d+)', l).group(1)
-                vinculo_atual = {}
-                remuneracoes_vinculo = []
-                processando_remuneracoes = False
-                
-                # Extrai dados básicos do vínculo
-                partes = re.split(r'\s{2,}', l)
-                if len(partes) >= 7:
-                    vinculo_atual = {
-                        'seq': seq_atual,
-                        'nit': partes[1] if len(partes) > 1 else '',
-                        'codigo_empresa': partes[2] if len(partes) > 2 else '',
-                        'origem_vinculo': partes[3] if len(partes) > 3 else '',
-                        'data_inicio': partes[4] if len(partes) > 4 else '',
-                        'data_fim': partes[5] if len(partes) > 5 else '',
-                        'tipo_filiado': partes[6] if len(partes) > 6 else '',
-                        'ult_remun': partes[7] if len(partes) > 7 else ''
-                    }
-            
-            # Identifica se é empregado ou contribuinte individual
-            elif 'Empregado' in l:
-                vinculo_atual['tipo'] = 'EMPREGADO'
-            elif 'Contribuinte Individual' in l:
-                vinculo_atual['tipo'] = 'CONTRIBUINTE_INDIVIDUAL'
-            
-            # Identifica início da tabela de remunerações
-            elif 'Competência' in l and 'Remuneração' in l:
-                processando_remuneracoes = True
-            elif 'Competência' in l and 'Salário Contribuição' in l:
-                processando_remuneracoes = True
-                vinculo_atual['tipo'] = 'CONTRIBUINTE_INDIVIDUAL'
-            
-            # Processa linhas de remuneração
-            elif processando_remuneracoes and re.search(r'\d{2}/\d{4}', l):
-                # Encontra todas as competências e valores na linha
-                competencias = re.findall(r'(\d{2}/\d{4})', l)
-                valores = re.findall(r'(\d{1,3}(?:\.\d{3})*,\d{2})', l)
-                
-                for comp, val in zip(competencias, valores):
-                    try:
-                        valor_float = float(val.replace('.', '').replace(',', '.'))
-                        remuneracoes_vinculo.append({
-                            'competencia': comp,
-                            'valor': valor_float,
-                            'tipo': 'REMUNERACAO' if vinculo_atual.get('tipo') == 'EMPREGADO' else 'SALARIO_CONTRIBUICAO'
-                        })
-                    except ValueError:
-                        continue
-            
-            # Identifica fim da tabela de remunerações
-            elif processando_remuneracoes and (l == '' or 'Seq.' in l):
-                processando_remuneracoes = False
-            
-            # Extrai dados pessoais
-            elif 'Nome:' in l and not st.session_state.dados_segurado['nome']:
-                m = re.search(r'Nome:\s*(.+)', l)
-                if m: 
-                    st.session_state.dados_segurado['nome'] = m.group(1).strip()
-            elif 'Data de nascimento:' in l:
-                m = re.search(r'Data de nascimento:\s*(\d{2}/\d{2}/\d{4})', l)
-                if m:
-                    try:
-                        st.session_state.dados_segurado['nascimento'] = datetime.strptime(m.group(1), '%d/%m/%Y').date()
-                    except:
-                        pass
-        
-        # Adiciona o último vínculo processado
-        if seq_atual is not None and vinculo_atual:
-            st.session_state.vinculos[seq_atual] = {
-                'dados': vinculo_atual.copy(),
-                'salarios': remuneracoes_vinculo.copy()
-            }
-        
-        # Consolida automaticamente
-        consolidar_vinculos()
-        
-        st.success(f"✅ Vínculos processados: {len(st.session_state.vinculos)}")
-        st.rerun()
-        
-    except Exception as e:
-        st.error(f"Erro no processamento: {e}")
-        st.error(f"Detalhe: {str(e)}")
+# Na parte do sidebar, atualize a seção de PDF:
+if opcao_cnis == "Texto":
+    texto_cnis = st.text_area("Cole o texto do CNIS aqui:", height=200)
+    if st.button("Processar Texto CNIS") and texto_cnis:
+        processar_texto_cnis_melhorado(texto_cnis)
+else:
+    pdf_cnis = st.file_uploader("Upload PDF CNIS", type=['pdf'])
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Processar PDF CNIS (Normal)") and pdf_cnis:
+            try:
+                reader = PdfReader(pdf_cnis)
+                texto = ""
+                for pagina in reader.pages:
+                    texto_pagina = pagina.extract_text()
+                    if texto_pagina:
+                        texto += texto_pagina + "\n"
+                if texto.strip():
+                    processar_texto_cnis_melhorado(texto)
+                else:
+                    st.warning("Não foi possível extrair texto do PDF.")
+            except Exception as e:
+                st.error(f"Erro ao ler PDF: {e}")
+    with col2:
+        if st.button("Processar PDF CNIS (Alternativo)") and pdf_cnis:
+            processar_pdf_cnis_alternativo(pdf_cnis)
 
 # Funções de salvar e carregar - ATUALIZADAS
 def salvar_dados():
