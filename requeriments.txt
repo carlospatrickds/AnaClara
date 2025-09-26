@@ -8,5 +8,8 @@ numpy==1.24.0
 # Exportação Excel
 openpyxl==3.1.2
 
-# Data e Hora (já incluído no pandas, mas para segurança)
+# Data e Hora
 python-dateutil==2.8.2
+
+# Manipulação de PDFs
+PyPDF2==3.0.1
