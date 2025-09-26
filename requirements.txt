@@ -37,4 +37,4 @@ workalendar
 #pandas>=2.3.2
 plotly>=6.3.0
 #pdfplumber>=0.11.7
-python-dateutil>=2.8.2
+#python-dateutil>=2.8.2
