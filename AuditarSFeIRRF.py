@@ -1,17 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import locale
-
-# Tentativa de configurar locale para português brasileiro
-try:
-    # Tenta configurar o locale para exibir moedas (R$) corretamente
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except:
-    try:
-        locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
-    except:
-        st.warning("Não foi possível configurar o locale para português brasileiro. Usando formato padrão.")
 
 # Configuração básica da página
 st.set_page_config(
@@ -23,21 +12,18 @@ st.set_page_config(
 st.title("💰 Auditoria de Folha de Pagamento 2025")
 st.markdown("### Cálculo de Salário Família, INSS e IRRF")
 
-# --- Dados das tabelas 2025 (Valores de exemplo/referência para 2025) ---
+# Dados das tabelas 2025
 SALARIO_FAMILIA_LIMITE = 1906.04
 VALOR_POR_DEPENDENTE = 65.00
 DESCONTO_DEPENDENTE_IR = 189.59
 
-# Tabela INSS 2025 (Progressiva) - A chave 'deducao' é adicionada para facilitar o cálculo
-# Os limites são: (até 1412.00), (de 1412.01 até 2666.68), (de 2666.69 até 4000.03), (de 4000.04 até 7786.02)
-# Teto do Salário de Contribuição: R$ 7.786,02
+# Tabela INSS 2025 CORRETA
 TABELA_INSS = [
-    {"limite": 1412.00, "aliquota": 0.075, "deducao": 0.00},
-    {"limite": 2666.68, "aliquota": 0.09,  "deducao": 18.90}, # (2666.68 - 1412.00) * 0.09 + (1412.00 * 0.075) = 227.82. Dedução = 2666.68 * 0.09 - 227.82 = 18.90
-    {"limite": 4000.03, "aliquota": 0.12,  "deducao": 96.94}, # Dedução calculada para esta faixa
-    {"limite": 7786.02, "aliquota": 0.14,  "deducao": 181.38} # Dedução calculada para esta faixa e teto
+    {"limite": 1518.00, "aliquota": 0.075},
+    {"limite": 2793.88, "aliquota": 0.09},
+    {"limite": 4190.83, "aliquota": 0.12},
+    {"limite": 8157.41, "aliquota": 0.14}
 ]
-TETO_INSS_VALOR = 7786.02 # Usado para calcular o valor máximo do INSS
 
 # Tabela IRRF 2025
 TABELA_IRRF = [
@@ -48,87 +34,64 @@ TABELA_IRRF = [
     {"limite": float('inf'), "aliquota": 0.275, "deducao": 916.90}
 ]
 
-# --- Funções de Ajuda ---
-
 def formatar_moeda(valor):
-    """Formata valor em moeda brasileira (R$ 1.234,56)."""
-    # Tenta usar o locale configurado (mais preciso)
-    try:
-        return locale.currency(valor, grouping=True)
-    # Se o locale falhar, usa formatação manual
-    except:
-        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    """Formata valor em moeda brasileira"""
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def formatar_data(data):
     """Formata data no padrão brasileiro"""
     return data.strftime("%d/%m/%Y")
 
-# --- Funções de Cálculo ---
-
 def calcular_inss(salario_bruto):
-    """Calcula desconto do INSS 2025 (Progressivo com Teto)"""
-    
-    # 1. Aplica o teto do salário de contribuição
-    base_inss = min(salario_bruto, TETO_INSS_VALOR)
-    
-    if base_inss <= 0:
+    """Calcula desconto do INSS 2025 com a tabela correta"""
+    if salario_bruto <= 0:
         return 0.0
     
-    # 2. Calcula o INSS de forma progressiva
-    inss_calculado = 0
-    teto_anterior = 0.0
+    # Se o salário for maior que o teto, usa o teto como base
+    salario_calculo = min(salario_bruto, TABELA_INSS[3]["limite"])
     
-    for faixa in TABELA_INSS:
-        # Verifica se o salário ultrapassa o limite da faixa
-        if base_inss > faixa["limite"]:
-            # Valor a ser taxado na FAIXA ATUAL (Limite da Faixa - Limite da Faixa Anterior)
-            valor_faixa = faixa["limite"] - teto_anterior
-            inss_calculado += valor_faixa * faixa["aliquota"]
+    inss = 0.0
+    salario_restante = salario_calculo
+    
+    for i, faixa in enumerate(TABELA_INSS):
+        if salario_restante <= 0:
+            break
+            
+        if i == 0:
+            # Primeira faixa
+            valor_faixa = min(salario_restante, faixa["limite"])
+            inss += valor_faixa * faixa["aliquota"]
+            salario_restante -= valor_faixa
         else:
-            # Salário cai nesta faixa, calcula o restante
-            valor_faixa = base_inss - teto_anterior
-            inss_calculado += valor_faixa * faixa["aliquota"]
-            break # Termina o cálculo, pois atingiu o limite
-        
-        teto_anterior = faixa["limite"]
-        
-    return round(inss_calculado, 2)
+            # Faixas seguintes
+            faixa_anterior = TABELA_INSS[i-1]
+            valor_faixa = min(salario_restante, faixa["limite"] - faixa_anterior["limite"])
+            inss += valor_faixa * faixa["aliquota"]
+            salario_restante -= valor_faixa
+    
+    return round(inss, 2)
 
 def calcular_salario_familia(salario, dependentes):
     """Calcula salário família"""
-    if salario <= SALARIO_FAMILIA_LIMITE and dependentes > 0:
+    if salario <= SALARIO_FAMILIA_LIMITE:
         return dependentes * VALOR_POR_DEPENDENTE
     return 0.0
 
 def calcular_irrf(salario_bruto, dependentes, inss, outros_descontos=0):
     """Calcula IRRF"""
-    
-    # Base de cálculo IRRF = Salário Bruto - Deduções (INSS + Dependentes + Outros)
-    deducao_dependentes = dependentes * DESCONTO_DEPENDENTE_IR
-    base_calculo = salario_bruto - inss - deducao_dependentes - outros_descontos
+    base_calculo = salario_bruto - (dependentes * DESCONTO_DEPENDENTE_IR) - inss - outros_descontos
     
     if base_calculo <= 0:
         return 0.0
     
-    # Aplica a tabela progressiva do IRRF
     for faixa in TABELA_IRRF:
         if base_calculo <= faixa["limite"]:
             irrf = (base_calculo * faixa["aliquota"]) - faixa["deducao"]
             return max(irrf, 0.0)
     
-    return 0.0 # Caso de segurança
+    return 0.0
 
-def classificar_faixa_irrf(base_calculo):
-    """Classifica em qual faixa do IRRF se enquadra para exibição."""
-    for i, faixa in enumerate(TABELA_IRRF):
-        if base_calculo <= faixa["limite"]:
-            if faixa['aliquota'] == 0.0:
-                return "Faixa 1 - Isento"
-            return f"Faixa {i+1} - {faixa['aliquota']*100:.1f}%"
-    return "Faixa 5 - 27.5%"
-
-# --- Interface Principal ---
-
+# Interface principal
 tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
 
 with tab1:
@@ -140,30 +103,25 @@ with tab1:
         nome = st.text_input("Nome do Funcionário", "João Silva")
         salario = st.number_input("Salário Bruto (R$)", 
                                 min_value=0.0, 
-                                value=5500.00, # Valor de teste para cruzar as faixas
-                                step=100.0,
-                                format="%.2f")
-        dependentes = st.number_input("Número de Dependentes (Salário Família / IR)", 
+                                value=3000.0, 
+                                step=100.0)
+        dependentes = st.number_input("Número de Dependentes", 
                                     min_value=0, 
                                     value=1, 
                                     step=1)
     
     with col2:
-        outros_descontos = st.number_input("Outros Descontos da Base IRRF (Ex: Pensão, Faltas) (R$)", 
+        outros_descontos = st.number_input("Outros Descontos (R$)", 
                                          min_value=0.0, 
                                          value=0.0, 
-                                         step=50.0,
-                                         format="%.2f")
-        data_admissao = st.date_input("Data de Admissão", 
-                                    value=datetime(2023, 1, 1))
+                                         step=50.0)
+        competencia = st.date_input("Competência Analisada", 
+                                  value=datetime.now().replace(day=1))
     
     if st.button("Calcular", type="primary"):
         # Realizar cálculos
         inss_valor = calcular_inss(salario)
         sal_familia = calcular_salario_familia(salario, dependentes)
-        
-        # Base de cálculo IRRF
-        base_irrf = salario - inss_valor - (dependentes * DESCONTO_DEPENDENTE_IR) - outros_descontos
         irrf_valor = calcular_irrf(salario, dependentes, inss_valor, outros_descontos)
         
         # Cálculo do salário líquido
@@ -180,67 +138,67 @@ with tab1:
         with col1:
             st.metric("Salário Família", formatar_moeda(sal_familia))
         with col2:
-            st.metric("INSS (Desconto)", formatar_moeda(inss_valor))
+            st.metric("INSS", formatar_moeda(inss_valor))
         with col3:
-            st.metric("IRRF (Desconto)", formatar_moeda(irrf_valor))
+            st.metric("IRRF", formatar_moeda(irrf_valor))
         with col4:
             st.metric("Salário Líquido", formatar_moeda(salario_liquido))
         
         # Tabela de detalhes
         st.subheader("📋 Detalhamento Completo")
-        
-        # Cria a string para a faixa do INSS (ajuda a visualizar a alíquota efetiva)
-        if salario <= TETO_INSS_VALOR:
-            aliquota_efetiva = inss_valor / salario
-        else:
-            aliquota_efetiva = inss_valor / TETO_INSS_VALOR # Usa o teto para alíquota
-            
         detalhes = pd.DataFrame({
             'Descrição': [
                 'Salário Bruto', 
-                'Salário Família (Provento)', 
-                'INSS (Desconto)', 
-                'IRRF (Desconto)', 
-                'Outros Descontos (Base IR)',
-                'Dedução Dependentes (IR)',
-                'Base de Cálculo IRRF',
-                'Faixa IRRF',
+                'Salário Família', 
+                'INSS', 
+                'IRRF', 
+                'Outros Descontos',
                 'Total Descontos',
                 'Salário Líquido'
             ],
             'Valor': [
                 formatar_moeda(salario),
                 formatar_moeda(sal_familia),
-                f"{formatar_moeda(inss_valor)} (Alíq. Efetiva: {aliquota_efetiva*100:.2f}%)",
+                formatar_moeda(inss_valor),
                 formatar_moeda(irrf_valor),
                 formatar_moeda(outros_descontos),
-                formatar_moeda(dependentes * DESCONTO_DEPENDENTE_IR),
-                formatar_moeda(base_irrf),
-                classificar_faixa_irrf(base_irrf),
                 formatar_moeda(total_descontos),
                 formatar_moeda(salario_liquido)
             ]
         })
-        st.dataframe(detalhes.set_index('Descrição'), use_container_width=True)
-
+        st.dataframe(detalhes, use_container_width=True, hide_index=True)
+        
+        # Informações adicionais
+        st.subheader("📊 Informações Adicionais")
+        col_info1, col_info2 = st.columns(2)
+        
+        with col_info1:
+            st.write(f"**Competência Analisada:** {formatar_data(competencia)}")
+            st.write(f"**Dependentes para IRRF:** {dependentes}")
+            base_irrf = salario - (dependentes * DESCONTO_DEPENDENTE_IR) - inss_valor - outros_descontos
+            st.write(f"**Base cálculo IRRF:** {formatar_moeda(base_irrf)}")
+        
+        with col_info2:
+            st.write(f"**Elegível Salário Família:** {'Sim' if sal_familia > 0 else 'Não'}")
+            st.write(f"**Total de Descontos:** {formatar_moeda(total_descontos)}")
+            st.write(f"**Total de Acréscimos:** {formatar_moeda(total_acrescimos)}")
 
 with tab2:
     st.header("Auditoria em Lote")
     
-    st.info("Faça upload de um arquivo CSV com os dados dos funcionários (separador ';'). O arquivo deve conter as colunas: `Nome`, `Salario_Bruto`, `Dependentes`, `Outros_Descontos`.")
+    st.info("Faça upload de um arquivo CSV com os dados dos funcionários")
     
     # Template para download
     template_data = {
         'Nome': ['João Silva', 'Maria Santos', 'Pedro Oliveira'],
-        'Salario_Bruto': [1800.00, 3500.00, 5000.00],
+        'Salario_Bruto': [1500.00, 3500.00, 6000.00],
         'Dependentes': [2, 1, 0],
         'Outros_Descontos': [0.0, 100.0, 200.0]
     }
     template_df = pd.DataFrame(template_data)
     
-    # Nota: Usando sep=';' para evitar problemas com vírgula decimal em pt-BR
     st.download_button(
-        label="📥 Baixar Template CSV (Separador ;)",
+        label="📥 Baixar Template CSV",
         data=template_df.to_csv(index=False, sep=';'),
         file_name="template_funcionarios.csv",
         mime="text/csv"
@@ -250,82 +208,57 @@ with tab2:
     
     if uploaded_file is not None:
         try:
-            # Tenta ler com separador ';' e decodificação UTF-8
-            df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
-            
-            # Validação mínima de colunas
-            colunas_necessarias = ['Nome', 'Salario_Bruto', 'Dependentes']
-            for col in colunas_necessarias:
-                if col not in df.columns:
-                    st.error(f"O arquivo CSV deve conter a coluna obrigatória: '{col}'. Por favor, use o template.")
-                    return
-            
-            # Garante que a coluna de descontos exista (pode ser 0)
-            if 'Outros_Descontos' not in df.columns:
-                 df['Outros_Descontos'] = 0.0
-
+            df = pd.read_csv(uploaded_file, sep=';')
             st.write("**Pré-visualização dos dados:**")
             st.dataframe(df.head())
             
             if st.button("Processar Auditoria", type="primary"):
+                resultados = []
                 
-                # Aplica as funções de cálculo a todas as linhas do DataFrame
-                df['INSS_Calculado'] = df['Salario_Bruto'].apply(calcular_inss)
-                df['Salario_Familia_Calculado'] = df.apply(
-                    lambda row: calcular_salario_familia(row['Salario_Bruto'], row['Dependentes']), axis=1
-                )
+                for _, row in df.iterrows():
+                    inss = calcular_inss(row['Salario_Bruto'])
+                    sal_familia = calcular_salario_familia(row['Salario_Bruto'], row['Dependentes'])
+                    irrf = calcular_irrf(row['Salario_Bruto'], row['Dependentes'], inss, row.get('Outros_Descontos', 0))
+                    salario_liquido = row['Salario_Bruto'] + sal_familia - inss - irrf - row.get('Outros_Descontos', 0)
+                    
+                    resultados.append({
+                        'Nome': row['Nome'],
+                        'Salario_Bruto': row['Salario_Bruto'],
+                        'Dependentes': row['Dependentes'],
+                        'Salario_Familia': sal_familia,
+                        'INSS': inss,
+                        'IRRF': irrf,
+                        'Salario_Liquido': salario_liquido,
+                        'Elegivel_Salario_Familia': 'Sim' if sal_familia > 0 else 'Não'
+                    })
                 
-                # Calcula o IRRF
-                df['IRRF_Calculado'] = df.apply(
-                    lambda row: calcular_irrf(
-                        row['Salario_Bruto'], 
-                        row['Dependentes'], 
-                        row['INSS_Calculado'], 
-                        row['Outros_Descontos']
-                    ), axis=1
-                )
-                
-                # Calcula o Salário Líquido Simulado
-                df['Salario_Liquido_Simulado'] = (
-                    df['Salario_Bruto'] + df['Salario_Familia_Calculado'] - 
-                    df['INSS_Calculado'] - df['IRRF_Calculado'] - df['Outros_Descontos']
-                )
-
-                df['Elegivel_Salario_Familia'] = df['Salario_Familia_Calculado'].apply(lambda x: 'Sim' if x > 0 else 'Não')
-
-                colunas_resultado = [
-                    'Nome', 'Salario_Bruto', 'Dependentes', 'Outros_Descontos',
-                    'Salario_Familia_Calculado', 'INSS_Calculado', 'IRRF_Calculado', 
-                    'Salario_Liquido_Simulado', 'Elegivel_Salario_Familia'
-                ]
-                df_resultado = df[colunas_resultado]
+                df_resultado = pd.DataFrame(resultados)
                 
                 st.success("Auditoria concluída!")
-                st.dataframe(df_resultado.style.format(formatar_moeda), use_container_width=True) # Formata valores na tabela
+                st.dataframe(df_resultado, use_container_width=True)
                 
                 # Estatísticas
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Total Salário Família", formatar_moeda(df_resultado['Salario_Familia_Calculado'].sum()))
+                    st.metric("Total Salário Família", formatar_moeda(df_resultado['Salario_Familia'].sum()))
                 with col2:
-                    st.metric("Total INSS", formatar_moeda(df_resultado['INSS_Calculado'].sum()))
+                    st.metric("Total INSS", formatar_moeda(df_resultado['INSS'].sum()))
                 with col3:
-                    st.metric("Total IRRF", formatar_moeda(df_resultado['IRRF_Calculado'].sum()))
+                    st.metric("Total IRRF", formatar_moeda(df_resultado['IRRF'].sum()))
                 with col4:
                     st.metric("Funcionários Auditados", len(df_resultado))
                 
                 # Download dos resultados
-                # Usa to_csv com separador ';' para compatibilidade com Excel em PT-BR
-                csv_resultado = df_resultado.to_csv(index=False, sep=';', decimal=',')
+                csv_resultado = df_resultado.to_csv(index=False, sep=';')
                 st.download_button(
                     label="📥 Baixar Resultados",
                     data=csv_resultado,
-                    file_name=f"auditoria_folha_resultados_{datetime.now().strftime('%d%m%Y')}.csv",
+                    file_name=f"auditoria_folha_{datetime.now().strftime('%d%m%Y')}.csv",
                     mime="text/csv"
                 )
                 
         except Exception as e:
-            st.error(f"Erro ao processar arquivo. Verifique se o formato (separador ';') e os dados estão corretos. Detalhe: {e}")
+            st.error(f"Erro ao processar arquivo: {e}")
 
 with tab3:
     st.header("Informações Técnicas 2025")
@@ -333,41 +266,27 @@ with tab3:
     col_info1, col_info2 = st.columns(2)
     
     with col_info1:
-        st.subheader("💰 Salário Família & Deduções")
-        st.markdown(f"""
-        - **Limite de Salário Família:** **{formatar_moeda(SALARIO_FAMILIA_LIMITE)}**
-        - **Valor por Dependente (SF):** {formatar_moeda(VALOR_POR_DEPENDENTE)}
-        - **Dedução IR por Dependente:** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
+        st.subheader("💰 Salário Família")
+        st.write(f"""
+        - **Limite de salário:** {formatar_moeda(SALARIO_FAMILIA_LIMITE)}
+        - **Valor por dependente:** {formatar_moeda(VALOR_POR_DEPENDENTE)}
+        - **Dedução IR por dependente:** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
+        - **Requisito:** Salário igual ou inferior ao limite
+        - **Dependentes:** Filhos até 14 anos ou inválidos de qualquer idade
         """)
     
     with col_info2:
-        st.subheader("📊 Tabela INSS 2025 (Salário de Contribuição)")
-        tabela_inss_data = []
-        teto_anterior = 0.0
-        
-        for faixa in TABELA_INSS:
-            limite_atual = faixa["limite"]
-            aliquota = faixa["aliquota"] * 100
-            
-            if teto_anterior == 0.0:
-                faixa_str = "Até " + formatar_moeda(limite_atual)
-                parcela_teto = limite_atual * faixa["aliquota"]
-            else:
-                faixa_str = formatar_moeda(teto_anterior + 0.01) + " a " + formatar_moeda(limite_atual)
-                parcela_teto = parcela_teto + (limite_atual - teto_anterior) * faixa["aliquota"]
-            
-            tabela_inss_data.append({
-                "Faixa": f"{aliquota:.1f}%",
-                "Salário de Contribuição": faixa_str, 
-                "Parc. Teto (Acréscimo)": formatar_moeda(parcela_teto)
-            })
-            teto_anterior = limite_atual
-            
-        tabela_inss_df_display = pd.DataFrame(tabela_inss_data)
-        st.dataframe(tabela_inss_df_display, use_container_width=True, hide_index=True)
-        st.caption(f"**Teto Salário de Contribuição:** {formatar_moeda(TETO_INSS_VALOR)} | **Valor Máx. INSS:** {formatar_moeda(calcular_inss(TETO_INSS_VALOR))}")
+        st.subheader("📊 Tabela INSS 2025")
+        tabela_inss_df = pd.DataFrame([
+            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1518.00), "Alíquota": "7,5%"},
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1518.01) + " a " + formatar_moeda(2793.88), "Alíquota": "9,0%"},
+            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2793.89) + " a " + formatar_moeda(4190.83), "Alíquota": "12,0%"},
+            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(4190.84) + " a " + formatar_moeda(8157.41), "Alíquota": "14,0%"}
+        ])
+        st.dataframe(tabela_inss_df, use_container_width=True, hide_index=True)
+        st.caption(f"**Teto máximo do INSS:** {formatar_moeda(8157.41)}")
     
-    st.subheader("📈 Tabela IRRF 2025 (Base de Cálculo)")
+    st.subheader("📈 Tabela IRRF 2025")
     tabela_irrf_df = pd.DataFrame([
         {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2428.80), "Alíquota": "0%", "Dedução": formatar_moeda(0.00)},
         {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2428.81) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Dedução": formatar_moeda(182.16)},
@@ -377,31 +296,35 @@ with tab3:
     ])
     st.dataframe(tabela_irrf_df, use_container_width=True, hide_index=True)
     
-    st.subheader("Fórmulas de Cálculo Aplicadas")
-    st.code("""
-        # Cálculo do INSS (Progressivo)
-        1. Limita a base de cálculo ao Teto do Salário de Contribuição (R$ 7.786,02).
-        2. Aplica as alíquotas de cada faixa (7,5%, 9%, 12%, 14%) apenas sobre a parte do salário que cai em cada faixa.
-
-        # Cálculo do IRRF
-        Base Cálculo IRRF = Salário Bruto - INSS (Calculado) - Dedução Dependentes (R$ 189,59/cada) - Outros Descontos
-        IRRF = (Base Cálculo IRRF × Alíquota da Faixa) - Parcela a Deduzir da Faixa
-        
-        # Salário Líquido Simulado
-        Salário Líquido = Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos
-    """)
+    st.subheader("🧮 Exemplos de Cálculo INSS")
+    exemplos = pd.DataFrame({
+        'Salário Bruto': [
+            formatar_moeda(1500.00),
+            formatar_moeda(2800.00), 
+            formatar_moeda(4200.00),
+            formatar_moeda(8500.00)
+        ],
+        'Cálculo INSS': [
+            f"R$ 1.500,00 × 7,5% = {formatar_moeda(112.50)}",
+            f"R$ 1.518,00 × 7,5% + R$ 1.282,00 × 9% = {formatar_moeda(113.85 + 115.38)}",
+            f"R$ 1.518,00 × 7,5% + R$ 1.275,88 × 9% + R$ 1.406,12 × 12% = {formatar_moeda(113.85 + 114.83 + 168.73)}",
+            f"Teto máximo: {formatar_moeda(8157.41)} = {formatar_moeda(calcular_inss(8500.00))}"
+        ]
+    })
+    st.dataframe(exemplos, use_container_width=True, hide_index=True)
 
 st.sidebar.header("ℹ️ Sobre")
-st.sidebar.info(f"""
+st.sidebar.info("""
 **Auditoria Folha de Pagamento 2025**
 
-Cálculos baseados nas tabelas de referência para 2025.
-
-**🚨 Alíquotas e limites do INSS/IRRF são apenas previsões para 2025 e devem ser validados conforme Portaria oficial.**
+Cálculos baseados na legislação vigente:
+- Salário Família
+- INSS (Tabela 2025)
+- IRRF (Tabela 2025)
 
 ⚠️ Consulte um contador para validação oficial.
 """)
 
 # Rodapé
 st.markdown("---")
-st.caption(f"📅 Data de referência: {formatar_data(datetime.now())}")
+st.caption(f"📅 Competência de referência: {formatar_data(datetime.now())} | 🏛 Legislação 2025")
