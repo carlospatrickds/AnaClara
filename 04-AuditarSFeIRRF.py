@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+# Adicionar timezone e a função timezone() do Python 3.9+
+from zoneinfo import ZoneInfo
 from fpdf import FPDF
 import base64
 from io import BytesIO
@@ -80,7 +82,13 @@ def calcular_inss(salario_bruto):
             salario_restante -= valor_faixa
     
     return round(inss, 2)
-
+    
+# --- FUNÇÃO PARA OBTER HORA CORRETA NO BRASIL (BRT/GMT-3) ---
+def get_br_datetime_now():
+    """Retorna o objeto get_br_datetime_now() configurado para o fuso horário de São Paulo (BRT/GMT-3)"""
+    # Usando o fuso horário padrão do Brasil para a maioria dos estados, incluindo Pernambuco
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+    
 def calcular_salario_familia(salario, dependentes):
     """Calcula salário família"""
     if salario <= SALARIO_FAMILIA_LIMITE:
@@ -316,7 +324,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'INFORMAÇÕES DA AUDITORIA', 0, 1)
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 6, f'Data da Análise: {formatar_data(datetime.now())}', 0, 1)
+    pdf.cell(0, 6, f'Data da Análise: {formatar_data(get_br_datetime_now())}', 0, 1)
     pdf.cell(0, 6, f'Total de Funcionários Auditados: {len(df_resultado)}', 0, 1)
     pdf.cell(0, 6, f'Arquivo Processado: {uploaded_filename}', 0, 1)
     
@@ -523,7 +531,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.set_font('Arial', 'I', 8)
     pdf.cell(0, 10, 'Relatório gerado automaticamente pelo Sistema de Auditoria de Folha de Pagamento.', 0, 1, 'C')
     pdf.cell(0, 5, 'Consulte um contador para validação oficial dos cálculos.', 0, 1, 'C')
-    pdf.cell(0, 5, f'Processado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
+    pdf.cell(0, 5, f'Processado em: {get_br_datetime_now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
     
     return pdf
 
@@ -559,7 +567,7 @@ with tab1:
                                            value=0.0, 
                                            step=50.0)
         competencia = st.date_input("Competência Analisada", 
-                                     value=datetime.now().replace(day=1))
+                                     value=get_br_datetime_now().replace(day=1))
     
     if st.button("Calcular", type="primary"):
         # Realizar cálculos
@@ -629,7 +637,7 @@ with tab1:
         # Gerar PDF
         st.subheader("📄 Gerar Relatório PDF")
         dados_pdf = {
-            "data_analise": formatar_data(datetime.now()),
+            "data_analise": formatar_data(get_br_datetime_now()),
             "competencia": formatar_data(competencia),
             "nome": nome,
             "salario_bruto": formatar_moeda(salario),
@@ -651,7 +659,7 @@ with tab1:
             st.markdown(
                 criar_link_download_pdf(
                     pdf_output, 
-                    f"Auditoria_Folha_{nome.replace(' ', '_')}_{datetime.now().strftime('%d%m%Y')}.pdf"
+                    f"Auditoria_Folha_{nome.replace(' ', '_')}_{get_br_datetime_now().strftime('%d%m%Y')}.pdf"
                 ), 
                 unsafe_allow_html=True
             )
@@ -1019,7 +1027,7 @@ with tab2:
             st.download_button(
                 label="📥 Baixar CSV",
                 data=csv_resultado,
-                file_name=f"auditoria_folha_{datetime.now().strftime('%d%m%Y_%H%M')}.csv",
+                file_name=f"auditoria_folha_{get_br_datetime_now().strftime('%d%m%Y_%H%M')}.csv",
                 mime="text/csv",
                 help="Baixe os resultados em CSV"
             )
@@ -1043,7 +1051,7 @@ with tab2:
                         st.markdown(
                             criar_link_download_pdf(
                                 pdf_output, 
-                                f"Auditoria_Completa_{datetime.now().strftime('%d%m%Y_%H%M')}.pdf"
+                                f"Auditoria_Completa_{get_br_datetime_now().strftime('%d%m%Y_%H%M')}.pdf"
                             ), 
                             unsafe_allow_html=True
                         )
@@ -1242,7 +1250,7 @@ st.markdown("---")
 col_rodape1, col_rodape2, col_rodape3 = st.columns(3)
 
 with col_rodape1:
-    st.caption(f"📅 Competência: {formatar_data(datetime.now())}")
+    st.caption(f"📅 Competência: {formatar_data(get_br_datetime_now())}")
 
 with col_rodape2:
     st.caption("🏛 Legislação 2025 - Vigência a partir de 01/01/2025")
