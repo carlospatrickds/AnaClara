@@ -546,6 +546,8 @@ def criar_link_download_pdf(pdf_output, filename):
 # Interface principal
 tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
 
+tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
+
 with tab1:
     st.header("Cálculo Individual")
     
@@ -567,8 +569,9 @@ with tab1:
                                            min_value=0.0, 
                                            value=0.0, 
                                            step=50.0)
+        # Usando a data/hora do Brasil para a competência inicial
         competencia = st.date_input("Competência Analisada", 
-                                     value=get_br_datetime_now().replace(day=1))
+                                     value=get_br_datetime_now().date().replace(day=1)) # Usamos .date() pois é um date_input
     
     if st.button("Calcular", type="primary"):
         # Realizar cálculos
@@ -637,21 +640,13 @@ with tab1:
         
         # Gerar PDF
         st.subheader("📄 Gerar Relatório PDF")
-        # NOVO: Capturar a data e hora exatas do processamento no Brasil
+        
+        # CAPTURAR DATA E HORA DO BRASIL
         data_hora_agora = get_br_datetime_now()
-        data_hora_formatada = data_hora_agora.strftime("%d/%m/%Y %H:%M") # Formato desejado: 19/11/2025 11:30
+        data_hora_formatada = data_hora_agora.strftime("%d/%m/%Y %H:%M")
         
         dados_pdf = {
-            "data_analise": formatar_data(data_hora_agora), # Atualiza a data de análise no cabeçalho
-            "competencia": formatar_data(competencia),
-            # ... (demais dados do PDF)
-            "base_irrf": formatar_moeda(base_irrf),
-            
-            # NOVO: Chave para a hora no rodapé
-            "data_e_hora_processamento": data_hora_formatada 
-        }
-        dados_pdf = {
-            "data_analise": formatar_data(get_br_datetime_now()),
+            "data_analise": formatar_data(data_hora_agora),
             "competencia": formatar_data(competencia),
             "nome": nome,
             "salario_bruto": formatar_moeda(salario),
@@ -663,7 +658,10 @@ with tab1:
             "total_descontos": formatar_moeda(total_descontos),
             "salario_liquido": formatar_moeda(salario_liquido),
             "elegivel_salario_familia": 'Sim' if sal_familia > 0 else 'Não',
-            "base_irrf": formatar_moeda(base_irrf)
+            "base_irrf": formatar_moeda(base_irrf),
+            
+            # NOVO: Chave para a hora no rodapé do PDF
+            "data_e_hora_processamento": data_hora_formatada 
         }
         
         try:
@@ -673,7 +671,7 @@ with tab1:
             st.markdown(
                 criar_link_download_pdf(
                     pdf_output, 
-                    f"Auditoria_Folha_{nome.replace(' ', '_')}_{get_br_datetime_now().strftime('%d%m%Y')}.pdf"
+                    f"Auditoria_Folha_{nome.replace(' ', '_')}_{data_hora_agora.strftime('%d%m%Y_%H%M')}.pdf"
                 ), 
                 unsafe_allow_html=True
             )
