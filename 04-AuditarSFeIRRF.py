@@ -277,7 +277,7 @@ def gerar_pdf_individual(dados):
     pdf.set_font('Arial', '', 9)
     
     metodologia = [
-        '1. SALÁRIO FAMÍLIA: Verifica se salário bruto ≤ R$ 1.906,04',
+        '1. SALÁRIO FAMÍLIA: Verifica se salário bruto é menor ou igual a R$ 1.906,04',
         '2. CÁLCULO: Nº Dependentes × R$ 65,00 (se elegível)',
         '3. INSS: Cálculo progressivo por faixas acumulativas',
         '4. BASE IRRF: Salário Bruto - Dependentes × R$ 189,59 - INSS - Outros Descontos',
