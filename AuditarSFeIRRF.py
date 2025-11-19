@@ -500,4 +500,212 @@ with tab3:
         st.subheader("💰 Salário Família")
         st.write(f"""
         - **Limite de salário:** {formatar_moeda(SALARIO_FAMILIA_LIMITE)}
-        - **Valor por dependente:** {formatar_
+        - **Valor por dependente:** {formatar_moeda(VALOR_POR_DEPENDENTE)}
+        - **Dedução IR por dependente:** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
+        - **Requisito:** Salário igual ou inferior ao limite
+        - **Dependentes:** Filhos até 14 anos ou inválidos de qualquer idade
+        """)
+        
+        st.subheader("📋 Como Calcular - Salário Família")
+        st.write("""
+        **Fórmula:**
+        ```
+        Se Salário Bruto ≤ R$ 1.906,04:
+            Salário Família = Nº Dependentes × R$ 65,00
+        Senão:
+            Salário Família = R$ 0,00
+        ```
+        
+        **Exemplo:**
+        - Salário: R$ 1.800,00
+        - Dependentes: 2
+        - Cálculo: 2 × R$ 65,00 = R$ 130,00
+        """)
+    
+    with col_info2:
+        st.subheader("📊 Tabela INSS 2025")
+        tabela_inss_df = pd.DataFrame([
+            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1518.00), "Alíquota": "7,5%"},
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1518.01) + " a " + formatar_moeda(2793.88), "Alíquota": "9,0%"},
+            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2793.89) + " a " + formatar_moeda(4190.83), "Alíquota": "12,0%"},
+            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(4190.84) + " a " + formatar_moeda(8157.41), "Alíquota": "14,0%"}
+        ])
+        st.dataframe(tabela_inss_df, use_container_width=True, hide_index=True)
+        st.caption(f"**Teto máximo do INSS:** {formatar_moeda(8157.41)}")
+        
+        st.subheader("📋 Como Calcular - INSS")
+        st.write("""
+        **Fórmula Progressiva:**
+        ```
+        1ª Faixa: R$ 1.518,00 × 7,5%
+        2ª Faixa: (R$ 2.793,88 - R$ 1.518,00) × 9%
+        3ª Faixa: (R$ 4.190,83 - R$ 2.793,88) × 12%
+        4ª Faixa: (R$ 8.157,41 - R$ 4.190,83) × 14%
+        ```
+        """)
+
+    st.subheader("📈 Tabela IRRF 2025")
+    tabela_irrf_df = pd.DataFrame([
+        {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2428.80), "Alíquota": "0%", "Dedução": formatar_moeda(0.00), "Parcela a Deduzir": formatar_moeda(0.00)},
+        {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2428.81) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Dedução": formatar_moeda(182.16), "Parcela a Deduzir": formatar_moeda(182.16)},
+        {"Faixa": "3ª", "Base de Cálculo": formatar_moeda(2826.66) + " a " + formatar_moeda(3751.05), "Alíquota": "15%", "Dedução": formatar_moeda(394.16), "Parcela a Deduzir": formatar_moeda(394.16)},
+        {"Faixa": "4ª", "Base de Cálculo": formatar_moeda(3751.06) + " a " + formatar_moeda(4664.68), "Alíquota": "22,5%", "Dedução": formatar_moeda(675.49), "Parcela a Deduzir": formatar_moeda(675.49)},
+        {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Dedução": formatar_moeda(916.90), "Parcela a Deduzir": formatar_moeda(916.90)}
+    ])
+    st.dataframe(tabela_irrf_df, use_container_width=True, hide_index=True)
+    
+    st.subheader("📋 Como Calcular - IRRF")
+    st.write(f"""
+    **Fórmula:**
+    ```
+    Base de Cálculo = Salário Bruto - (Dependentes × {formatar_moeda(DESCONTO_DEPENDENTE_IR)}) - INSS - Outros Descontos
+    IRRF = (Base de Cálculo × Alíquota) - Parcela a Deduzir
+    ```
+    
+    **Dedução por Dependente:** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
+    
+    **Exemplo:**
+    - Salário Bruto: R$ 3.000,00
+    - Dependentes: 1
+    - INSS: R$ 263,33
+    - Base: R$ 3.000,00 - (1 × {formatar_moeda(DESCONTO_DEPENDENTE_IR)}) - R$ 263,33 = R$ 2.546,88
+    - Cálculo: (R$ 2.546,88 × 7,5%) - R$ 182,16 = R$ 8,86
+    """)
+
+    st.subheader("🧮 Exemplos Práticos de Cálculo")
+    
+    exemplos = pd.DataFrame({
+        'Cenário': [
+            'Funcionário com baixa renda + dependentes',
+            'Funcionário classe média',
+            'Funcionário alta renda',
+            'Funcionário no teto do INSS'
+        ],
+        'Salário Bruto': [
+            formatar_moeda(1500.00),
+            formatar_moeda(3500.00),
+            formatar_moeda(6000.00),
+            formatar_moeda(9000.00)
+        ],
+        'Dependentes': [2, 1, 0, 2],
+        'Salário Família': [
+            formatar_moeda(130.00),
+            formatar_moeda(0.00),
+            formatar_moeda(0.00),
+            formatar_moeda(0.00)
+        ],
+        'INSS': [
+            formatar_moeda(112.50),
+            formatar_moeda(263.33),
+            formatar_moeda(514.03),
+            formatar_moeda(828.39)
+        ],
+        'IRRF': [
+            formatar_moeda(0.00),
+            formatar_moeda(35.52),
+            formatar_moeda(505.42),
+            formatar_moeda(1085.27)
+        ],
+        'Salário Líquido': [
+            formatar_moeda(1517.50),
+            formatar_moeda(3201.15),
+            formatar_moeda(4980.55),
+            formatar_moeda(7086.34)
+        ]
+    })
+    
+    st.dataframe(exemplos, use_container_width=True)
+
+    st.subheader("📝 Legislação de Referência")
+    st.write("""
+    - **Salário Família:** Lei 8.213/1991
+    - **INSS:** Lei 8.212/1991 e Portaria MF/MPS 01/2024
+    - **IRRF:** Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024
+    - **Vigência:** Exercício 2025 (ano-calendário 2024)
+    """)
+    
+    st.subheader("⚠️ Observações Importantes")
+    st.write("""
+    1. **Salário Família:** 
+       - Pago apenas para salários até R$ 1.906,04
+       - Dependentes: filhos até 14 anos ou inválidos de qualquer idade
+    
+    2. **INSS:**
+       - Cálculo progressivo por faixas
+       - Teto máximo de contribuição: R$ 8.157,41
+       - Salários acima do teto pagam o valor máximo
+    
+    3. **IRRF:**
+       - Dedução de R$ 189,59 por dependente
+       - Base de cálculo após descontos de INSS e dependentes
+       - Isenção para base até R$ 2.428,80
+    
+    4. **Competência:**
+       - Referente ao mês de pagamento
+       - Baseada na legislação vigente em 2025
+    
+    **Nota:** Este sistema realiza cálculos conforme a legislação vigente, 
+    porém recomenda-se consulta a contador para validação oficial.
+    """)
+
+st.sidebar.header("ℹ️ Sobre")
+st.sidebar.info("""
+**Auditoria Folha de Pagamento 2025**
+
+Cálculos baseados na legislação vigente:
+- Salário Família
+- INSS (Tabela 2025)
+- IRRF (Tabela 2025)
+
+**Funcionalidades:**
+- Cálculo individual
+- Auditoria em lote
+- Relatórios em PDF
+- Tabelas atualizadas
+
+⚠️ Consulte um contador para validação oficial.
+""")
+
+# Adicionar informações de contato no sidebar
+st.sidebar.header("📞 Suporte")
+st.sidebar.write("""
+**Dúvidas técnicas:**
+- Consulte as informações na aba ℹ️ Informações
+- Verifique as fórmulas de cálculo
+- Confira os exemplos práticos
+
+**Problemas com o sistema:**
+- Verifique o formato do arquivo CSV
+- Confirme os valores de entrada
+- Recarregue a página se necessário
+""")
+
+# Rodapé
+st.markdown("---")
+col_rodape1, col_rodape2, col_rodape3 = st.columns(3)
+
+with col_rodape1:
+    st.caption(f"📅 Competência: {formatar_data(datetime.now())}")
+
+with col_rodape2:
+    st.caption("🏛 Legislação 2025 - Vigência a partir de 01/01/2025")
+
+with col_rodape3:
+    st.caption("⚡ Desenvolvido para auditoria contábil")
+
+# Adicionar uma seção de aviso legal
+st.markdown("""
+<style>
+.aviso-legal {
+    font-size: 0.8em;
+    color: #666;
+    text-align: center;
+    margin-top: 20px;
+}
+</style>
+<div class="aviso-legal">
+⚠️ AVISO LEGAL: Este sistema realiza cálculos com base na legislação vigente e tem caráter informativo. 
+Recomenda-se a validação dos resultados por profissional contábil habilitado. 
+Os valores podem sofrer alterações conforme atualizações legais.
+</div>
+""", unsafe_allow_html=True)
