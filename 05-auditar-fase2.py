@@ -516,7 +516,8 @@ with tab2:
     opcao_entrada = st.radio(
         "Selecione a fonte dos dados:",
         ["📁 Upload de CSV", "🌐 Google Sheets", "✏️ Digitação Manual"],
-        horizontal=True
+        horizontal=True,
+        key="opcao_entrada"  # Adicionar key única
     )
     
     # Template para download
@@ -540,6 +541,14 @@ with tab2:
     
     df = None
     uploaded_filename = "dados_manuais"
+    
+    # LIMPAR SESSION STATE QUANDO MUDAR DE OPÇÃO
+    if 'ultima_opcao' not in st.session_state:
+        st.session_state.ultima_opcao = opcao_entrada
+    elif st.session_state.ultima_opcao != opcao_entrada:
+        # Limpar dados anteriores quando mudar de opção
+        st.session_state.df_resultado = None
+        st.session_state.ultima_opcao = opcao_entrada
     
     if opcao_entrada == "📁 Upload de CSV":
         st.subheader("📤 Upload de Arquivo CSV")
@@ -567,14 +576,16 @@ with tab2:
             sheets_url = st.text_input(
                 "URL do Google Sheets:",
                 value="https://docs.google.com/spreadsheets/d/1G-O5sNYWGLDYG8JG3FXom4BpBrVFRnrxVal-LwmH9Gc/edit?usp=sharing",
-                help="Cole a URL completa da planilha do Google Sheets"
+                help="Cole a URL completa da planilha do Google Sheets",
+                key="sheets_url"  # Key única para este input
             )
         
         with col2:
             sheet_name = st.text_input(
                 "Nome da Aba:",
                 value="Página1",
-                help="Nome da aba/worksheet (padrão: Página1)"
+                help="Nome da aba/worksheet (padrão: Página1)",
+                key="sheet_name"  # Key única para este input
             )
         
         if sheets_url:
@@ -621,14 +632,23 @@ with tab2:
     elif opcao_entrada == "✏️ Digitação Manual":
         st.subheader("📝 Digitação Manual de Dados")
         
+        # LIMPAR DADOS ANTERIORES AO MUDAR PARA DIGITAÇÃO MANUAL
+        if st.session_state.get('ultima_opcao') != "✏️ Digitação Manual":
+            st.session_state.dados_manuais = []
+        
         # Interface para entrada manual de dados
         num_funcionarios = st.number_input(
             "Número de funcionários:",
             min_value=1,
             max_value=50,
             value=3,
-            step=1
+            step=1,
+            key="num_funcionarios"  # Key única
         )
+        
+        # Inicializar dados manuais no session state
+        if 'dados_manuais' not in st.session_state:
+            st.session_state.dados_manuais = []
         
         dados_manuais = []
         
@@ -637,13 +657,13 @@ with tab2:
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                nome = st.text_input(f"Nome {i+1}", value=f"Funcionário {i+1}", key=f"nome_{i}")
+                nome = st.text_input(f"Nome {i+1}", value=f"Funcionário {i+1}", key=f"nome_manual_{i}")
             with col2:
-                salario = st.number_input(f"Salário {i+1}", min_value=0.0, value=2000.0, step=100.0, key=f"salario_{i}")
+                salario = st.number_input(f"Salário {i+1}", min_value=0.0, value=2000.0, step=100.0, key=f"salario_manual_{i}")
             with col3:
-                dependentes = st.number_input(f"Dependentes {i+1}", min_value=0, value=1, step=1, key=f"dependentes_{i}")
+                dependentes = st.number_input(f"Dependentes {i+1}", min_value=0, value=1, step=1, key=f"dependentes_manual_{i}")
             with col4:
-                outros_desc = st.number_input(f"Outros Desc. {i+1}", min_value=0.0, value=0.0, step=50.0, key=f"outros_{i}")
+                outros_desc = st.number_input(f"Outros Desc. {i+1}", min_value=0.0, value=0.0, step=50.0, key=f"outros_manual_{i}")
             
             dados_manuais.append({
                 'Nome': nome,
@@ -652,10 +672,28 @@ with tab2:
                 'Outros_Descontos': outros_desc
             })
         
-        if st.button("✅ Confirmar Dados Manuais", type="primary"):
-            df = pd.DataFrame(dados_manuais)
+        # Botão para confirmar dados manuais
+        col_confirmar, col_limpar = st.columns(2)
+        
+        with col_confirmar:
+            if st.button("✅ Confirmar Dados Manuais", type="primary", key="confirmar_manual"):
+                df = pd.DataFrame(dados_manuais)
+                uploaded_filename = "dados_manuais"
+                st.session_state.dados_manuais = dados_manuais.copy()
+                st.success("✅ Dados manuais confirmados!")
+                st.rerun()  # Forçar atualização da página
+        
+        with col_limpar:
+            if st.button("🗑️ Limpar Dados", type="secondary", key="limpar_manual"):
+                st.session_state.dados_manuais = []
+                st.session_state.df_resultado = None
+                st.success("🗑️ Dados limpos!")
+                st.rerun()  # Forçar atualização da página
+        
+        # Usar dados do session state se existirem
+        if st.session_state.dados_manuais:
+            df = pd.DataFrame(st.session_state.dados_manuais)
             uploaded_filename = "dados_manuais"
-            st.success("✅ Dados manuais confirmados!")
     
     # Processamento dos dados (comum para todas as opções)
     if df is not None:
@@ -697,7 +735,8 @@ with tab2:
                 with col3:
                     st.metric("Total Dependentes", df['Dependentes'].sum())
                 
-                if st.button("🚀 Processar Auditoria Completa", type="primary"):
+                # Botão para processar auditoria
+                if st.button("🚀 Processar Auditoria Completa", type="primary", key="processar_auditoria"):
                     # Processar cada funcionário
                     with st.spinner("Processando auditoria..."):
                         resultados = []
@@ -732,6 +771,7 @@ with tab2:
                         st.session_state.uploaded_filename = uploaded_filename
                         
                         st.success("🎉 Auditoria concluída!")
+                        st.rerun()  # Forçar atualização para mostrar resultados
         
         except Exception as e:
             st.error(f"❌ Erro ao processar dados: {e}")
@@ -739,6 +779,18 @@ with tab2:
     # CORREÇÃO: VERIFICAR SE EXISTE NO SESSION STATE ANTES DE USAR
     if hasattr(st.session_state, 'df_resultado') and st.session_state.df_resultado is not None:
         df_resultado = st.session_state.df_resultado
+        
+        # Mostrar de qual fonte vieram os dados
+        st.info(f"📊 **Dados processados de:** {st.session_state.uploaded_filename}")
+        
+        # Botão para limpar resultados
+        if st.button("🗑️ Limpar Resultados", type="secondary", key="limpar_resultados"):
+            st.session_state.df_resultado = None
+            st.session_state.uploaded_filename = None
+            if 'dados_manuais' in st.session_state:
+                st.session_state.dados_manuais = []
+            st.success("🗑️ Resultados limpos!")
+            st.rerun()
         
         # Resultados completos
         st.subheader("📈 Resultados da Auditoria")
@@ -790,7 +842,7 @@ with tab2:
         
         with col_pdf:
             # Gerar PDF da auditoria completa
-            if st.button("📄 Gerar PDF Completo", type="secondary"):
+            if st.button("📄 Gerar PDF Completo", type="secondary", key="gerar_pdf_completo"):
                 with st.spinner("Gerando relatório PDF..."):
                     try:
                         pdf = gerar_pdf_auditoria_completa(
