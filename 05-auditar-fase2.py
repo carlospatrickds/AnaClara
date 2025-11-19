@@ -228,7 +228,10 @@ with tab1:
         }
         
         pdf = gerar_pdf_individual(dados_pdf)
-        pdf_output = pdf.output(dest='S').encode('latin-1')
+        try:
+    pdf_output = pdf.output(dest='S').encode('latin-1')
+        except:
+    pdf_output = pdf.output(dest='S').encode('utf-8')
         
         st.markdown(
             criar_link_download_pdf(
