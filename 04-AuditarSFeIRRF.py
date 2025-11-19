@@ -12,7 +12,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 Auditoria de Folha de Pagamento 2025")
+st.title("💰 Auditoria de Folha de Pagamento 2025 - Ana Clara")
 st.markdown("### Cálculo de Salário Família, INSS e IRRF")
 
 # Dados das tabelas 2025
