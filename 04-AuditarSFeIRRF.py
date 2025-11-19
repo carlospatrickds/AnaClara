@@ -569,7 +569,8 @@ with tab1:
                                            step=50.0)
         # Usando a data/hora do Brasil para a competência inicial
         competencia = st.date_input("Competência Analisada", 
-                                     value=get_br_datetime_now().date().replace(day=1)) # Usamos .date() pois é um date_input
+                             value=get_br_datetime_now().date().replace(day=1),
+                             format="DD/MM/YYYY") # NOVO: Define o formato de exibição brasileiro
     
     if st.button("Calcular", type="primary"):
         # Realizar cálculos
