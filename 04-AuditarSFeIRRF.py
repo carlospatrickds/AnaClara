@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# INICIALIZAR SESSION STATE - CORREÇÃO DO ERRO
+# INICIALIZAR SESSION STATE
 if 'df_resultado' not in st.session_state:
     st.session_state.df_resultado = None
 if 'uploaded_filename' not in st.session_state:
@@ -89,7 +89,6 @@ def calcular_inss(salario_bruto):
             salario_restante -= valor_faixa
         else:
             faixa_anterior = TABELA_INSS[i-1]
-            # Limite da faixa atual - limite da faixa anterior
             limite_faixa = faixa["limite"] - faixa_anterior["limite"]
             
             valor_faixa = min(salario_restante, limite_faixa)
@@ -113,20 +112,29 @@ def calcular_irrf(salario_bruto, dependentes, inss, outros_descontos=0):
         return 0.0
     
     irrf = 0.0
-    # A tabela IRRF é acumulativa, mas o cálculo final é sempre (Base * Alíquota) - Dedução
     for faixa in TABELA_IRRF:
         if base_calculo <= faixa["limite"]:
             irrf = (base_calculo * faixa["aliquota"]) - faixa["deducao"]
-            return max(round(irrf, 2), 0.0) # Arredonda e garante que não seja negativo
+            return max(round(irrf, 2), 0.0)
     
-    return 0.0 # Nunca deve ser atingido com o float('inf') na última faixa
+    return 0.0
 
 # --- FUNÇÕES DE GERAÇÃO DE PDF ---
 
 def criar_link_download_pdf(pdf_output, filename):
-    """Cria link para download do PDF a partir de um objeto bytes (output do FPDF)"""
-    # Usar o output diretamente (já é bytes)
-    b64 = base64.b64encode(pdf_output).decode() # decodifica para string UTF-8 para o HTML
+    """
+    Cria link para download do PDF a partir de um objeto bytes (output do FPDF).
+    Garante que o input seja bytes para o base64.
+    """
+    # **CORREÇÃO MAIS SEGURA**: Se por algum motivo for string, forçamos a conversão para bytes
+    if isinstance(pdf_output, str):
+        # O FPDF usa 'latin1' (ou 'iso-8859-1') internamente para caracteres ASCII estendidos
+        pdf_output = pdf_output.encode('latin1')
+        
+    # Usa o output (garantido como bytes) para codificar em base64
+    # .decode('utf-8') é usado para converter o resultado do base64 (que é bytes) em string HTML
+    b64 = base64.b64encode(pdf_output).decode('utf-8')
+    
     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">📄 Clique aqui para baixar o PDF</a>'
     return href
 
@@ -185,7 +193,7 @@ def gerar_pdf_individual(dados):
             pdf.set_font('Arial', '', 10)
     pdf.ln(5)
     
-    # Informações Adicionais
+    # Informações Adicionais (Resto do PDF)
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'INFORMAÇÕES ADICIONAIS', 0, 1)
     pdf.set_font('Arial', '', 10)
@@ -280,28 +288,27 @@ def gerar_pdf_individual(dados):
     pdf.cell(0, 6, f'Dedução por dependente: {formatar_moeda(DESCONTO_DEPENDENTE_IR)}', 0, 1)
     pdf.ln(10)
     
-    # Legislação de Referência
+    # Legislação e Metodologia
     pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 10, 'LEGISLAÇÃO DE REFERÊNCIA', 0, 1)
-    pdf.set_font('Arial', '', 9)
+    pdf.cell(0, 10, 'LEGISLAÇÃO E METODOLOGIA', 0, 1)
     
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, 'LEGISLAÇÃO DE REFERÊNCIA', 0, 1)
+    pdf.set_font('Arial', '', 9)
     legislacao = [
         '- Salário Família: Lei 8.213/1991',
         '- INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024',
         '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024',
         '- Vigência: Exercício 2025 (ano-calendário 2024)'
     ]
-    
     for item in legislacao:
         pdf.cell(0, 5, item, 0, 1)
     
-    pdf.ln(5)
+    pdf.ln(3)
     
-    # Metodologia de Cálculo
-    pdf.set_font('Arial', 'B', 12)
-    pdf.cell(0, 10, 'METODOLOGIA DE CÁLCULO', 0, 1)
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, 'METODOLOGIA DE CÁLCULO', 0, 1)
     pdf.set_font('Arial', '', 9)
-    
     metodologia = [
         '1. SALÁRIO FAMÍLIA: Verifica se salário bruto é menor ou igual a R$ 1.906,04',
         '2. CÁLCULO: Nº Dependentes × R$ 65,00 (se elegível)',
@@ -310,7 +317,6 @@ def gerar_pdf_individual(dados):
         '5. IRRF: (Base × Alíquota) - Parcela a Deduzir (tabela progressiva)',
         '6. SALÁRIO LÍQUIDO: Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
     ]
-    
     for item in metodologia:
         pdf.multi_cell(0, 5, item)
         pdf.ln(1)
@@ -432,9 +438,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     
     pdf.ln(10)
     
-    # Tabelas de Referência COMPLETAS (apenas metodologias e referências para não repetir muito)
-    
-    # Legislação de Referência
+    # Legislação e Metodologia
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'LEGISLAÇÃO E METODOLOGIA', 0, 1)
     
@@ -452,7 +456,6 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     
     pdf.ln(3)
     
-    # Metodologia de Cálculo
     pdf.set_font('Arial', 'B', 10)
     pdf.cell(0, 6, 'METODOLOGIA DE CÁLCULO APLICADA', 0, 1)
     pdf.set_font('Arial', '', 9)
@@ -463,7 +466,6 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         '4. Aplicadas alíquotas progressivas conforme tabela IRRF 2025',
         '5. Salário Líquido = Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
     ]
-    
     for item in metodologia:
         pdf.multi_cell(0, 5, item)
         pdf.ln(1)
@@ -599,7 +601,7 @@ with tab1:
         
         try:
             pdf = gerar_pdf_individual(dados_pdf)
-            # CORREÇÃO APLICADA: APENAS O OUTPUT DO FPDF
+            # SAÍDA LIMPA: retorna objeto bytes
             pdf_output = pdf.output(dest='S')
             
             st.markdown(
@@ -651,7 +653,6 @@ with tab2:
     
     # LIMPAR SESSION STATE QUANDO MUDAR DE OPÇÃO
     if st.session_state.ultima_opcao != opcao_entrada:
-        # Limpar dados anteriores quando mudar de opção
         st.session_state.df_resultado = None
         st.session_state.dados_manuais = []
         st.session_state.ultima_opcao = opcao_entrada
@@ -666,11 +667,10 @@ with tab2:
         
         if uploaded_file is not None:
             try:
-                # Tenta ler com separador ';' e depois com ','
                 try:
                     df = pd.read_csv(uploaded_file, sep=';')
                 except:
-                    uploaded_file.seek(0) # Volta o ponteiro do arquivo para o início
+                    uploaded_file.seek(0)
                     df = pd.read_csv(uploaded_file, sep=',')
                 
                 uploaded_filename = uploaded_file.name
@@ -716,7 +716,6 @@ with tab2:
                     
                     st.success("✅ Conexão com Google Sheets estabelecida!")
                     
-                    # Mapear colunas (assumindo a ordem Nome, Salario_Bruto, Dependentes)
                     if len(df.columns) >= 3:
                         df.columns = ['Nome', 'Salario_Bruto', 'Dependentes'] + list(df.columns[3:])
                         
@@ -729,9 +728,6 @@ with tab2:
 
                 except Exception as e:
                     st.error(f"❌ Erro ao conectar com Google Sheets: {e}")
-                    st.info("""
-                    **Solução de problemas:** Verifique se a planilha é **pública** ou se a URL e o nome da aba estão corretos.
-                    """)
     
     elif opcao_entrada == "✏️ Digitação Manual":
         st.subheader("📝 Digitação Manual de Dados")
@@ -745,7 +741,6 @@ with tab2:
             key="num_funcionarios"
         )
         
-        # Inicializar ou ajustar a lista de dados manuais
         if len(st.session_state.dados_manuais) < num_funcionarios:
             diferenca = num_funcionarios - len(st.session_state.dados_manuais)
             novos_dados = [{
@@ -793,7 +788,6 @@ with tab2:
                 'Outros_Descontos': outros_desc
             })
             
-        # Atualizar dados no session state
         st.session_state.dados_manuais = dados_manuais_input
         df = pd.DataFrame(st.session_state.dados_manuais)
         uploaded_filename = "dados_manuais"
@@ -803,7 +797,6 @@ with tab2:
     # Processamento dos dados (comum para todas as opções)
     if df is not None and not df.empty:
         try:
-            # Limpeza e conversão de dados
             df['Salario_Bruto'] = pd.to_numeric(df['Salario_Bruto'], errors='coerce').fillna(0)
             df['Dependentes'] = pd.to_numeric(df['Dependentes'], errors='coerce').fillna(0).astype(int)
             
@@ -821,7 +814,6 @@ with tab2:
                 st.write("**👀 Pré-visualização dos dados:**")
                 st.dataframe(df[['Nome', 'Salario_Bruto', 'Dependentes', 'Outros_Descontos']].head(), use_container_width=True)
                 
-                # Estatísticas rápidas
                 st.write("**📊 Estatísticas dos dados:**")
                 col_e1, col_e2, col_e3 = st.columns(3)
                 with col_e1:
@@ -831,7 +823,6 @@ with tab2:
                 with col_e3:
                     st.metric("Total Dependentes", df['Dependentes'].sum())
                 
-                # Botão para processar auditoria
                 if st.button("🚀 Processar Auditoria Completa", type="primary", key="processar_auditoria"):
                     
                     with st.spinner("Processando auditoria..."):
@@ -861,12 +852,11 @@ with tab2:
                         
                         df_resultado = pd.DataFrame(resultados)
                         
-                        # Armazenar resultados no session state
                         st.session_state.df_resultado = df_resultado
                         st.session_state.uploaded_filename = uploaded_filename
                         
                         st.success("🎉 Auditoria concluída!")
-                        st.rerun() # Forçar atualização para mostrar resultados
+                        st.rerun()
         
         except Exception as e:
             st.error(f"❌ Erro ao processar dados: {e}")
@@ -877,7 +867,6 @@ with tab2:
         
         st.info(f"📊 **Dados processados de:** {st.session_state.uploaded_filename}")
         
-        # Botão para limpar resultados
         if st.button("🗑️ Limpar Resultados", type="secondary", key="limpar_resultados"):
             st.session_state.df_resultado = None
             st.session_state.uploaded_filename = None
@@ -885,10 +874,8 @@ with tab2:
             st.success("🗑️ Resultados limpos!")
             st.rerun()
         
-        # Resultados completos
         st.subheader("📈 Resultados da Auditoria")
         
-        # Criar DataFrame formatado para exibição
         df_display = df_resultado.copy()
         
         colunas_monetarias = ['Salario_Bruto', 'Salario_Familia', 'INSS', 'IRRF', 'Outros_Descontos', 'Salario_Liquido']
@@ -897,7 +884,6 @@ with tab2:
         
         st.dataframe(df_display, use_container_width=True)
         
-        # Estatísticas finais
         st.subheader("📊 Resumo Financeiro")
         col_r1, col_r2, col_r3, col_r4 = st.columns(4)
         with col_r1:
@@ -913,15 +899,12 @@ with tab2:
             folha_liquida_total = df_resultado['Salario_Liquido'].sum()
             st.metric("Folha Líquida Total", formatar_moeda(folha_liquida_total))
         
-        # Download dos resultados
         st.subheader("💾 Exportar Resultados")
         col_csv, col_pdf = st.columns(2)
         
         with col_csv:
-            # Criar CSV com formatação brasileira (vírgula como decimal)
             df_csv = df_resultado.copy()
             for coluna in colunas_monetarias:
-                # Converte para string com duas casas decimais, troca ponto por vírgula
                 df_csv[coluna] = df_csv[coluna].apply(lambda x: f"{x:.2f}".replace('.', ','))
             
             csv_resultado = df_csv.to_csv(index=False, sep=';')
@@ -934,7 +917,6 @@ with tab2:
             )
         
         with col_pdf:
-            # Gerar PDF da auditoria completa
             if st.button("📄 Gerar PDF Completo", type="secondary", key="gerar_pdf_completo"):
                 with st.spinner("Gerando relatório PDF..."):
                     try:
@@ -946,7 +928,7 @@ with tab2:
                             total_irrf,
                             folha_liquida_total
                         )
-                        # CORREÇÃO APLICADA: APENAS O OUTPUT DO FPDF
+                        # SAÍDA LIMPA: retorna objeto bytes
                         pdf_output = pdf.output(dest='S')
                         
                         st.markdown(
@@ -1024,7 +1006,7 @@ IRRF = (Base de Cálculo × Alíquota da Faixa) - Parcela a Deduzir da Faixa
     - **Vigência:** Exercício 2025 (ano-calendário 2024)
     """)
 
-# Sidebar e Rodapé (mantidos como estavam)
+# Sidebar e Rodapé
 st.sidebar.header("ℹ️ Sobre")
 st.sidebar.info("""
 **Auditoria Folha de Pagamento 2025**
