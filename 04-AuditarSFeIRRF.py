@@ -258,16 +258,16 @@ def gerar_pdf_individual(dados):
     pdf.cell(0, 10, 'LEGISLAÇÃO DE REFERÊNCIA', 0, 1)
     pdf.set_font('Arial', '', 9)
     
+    # CORREÇÃO: Substituir '•' por '-' para evitar erro de encoding no FPDF
     legislacao = [
-        '• Salário Família: Lei 8.213/1991',
-        '• INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024',
-        '• IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024',
-        '• Vigência: Exercício 2025 (ano-calendário 2024)'
+        '- Salário Família: Lei 8.213/1991',
+        '- INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024',
+        '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024',
+        '- Vigência: Exercício 2025 (ano-calendário 2024)'
     ]
     
-    # CORREÇÃO: Substituir '•' por '-' para evitar erro de encoding no FPDF
     for item in legislacao:
-        pdf.cell(0, 5, item.replace('•', '-'), 0, 1)
+        pdf.cell(0, 5, item, 0, 1)
     
     pdf.ln(5)
     
@@ -277,6 +277,7 @@ def gerar_pdf_individual(dados):
     pdf.set_font('Arial', '', 9)
     
     metodologia = [
+        # CORREÇÃO: Substituir '≤' por 'é menor ou igual a'
         '1. SALÁRIO FAMÍLIA: Verifica se salário bruto é menor ou igual a R$ 1.906,04',
         '2. CÁLCULO: Nº Dependentes × R$ 65,00 (se elegível)',
         '3. INSS: Cálculo progressivo por faixas acumulativas',
@@ -285,9 +286,8 @@ def gerar_pdf_individual(dados):
         '6. SALÁRIO LÍQUIDO: Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
     ]
     
-    # CORREÇÃO: Substituir '•' por '-' (embora não esteja aqui, é uma boa prática)
     for item in metodologia:
-        pdf.multi_cell(0, 5, item.replace('•', '-'))
+        pdf.multi_cell(0, 5, item)
         pdf.ln(1)
     
     pdf.ln(10)
@@ -487,15 +487,15 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.set_font('Arial', '', 9)
     
     legislacao = [
-        '• Salário Família: Lei 8.213/1991',
-        '• INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024',
-        '• IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024',
-        '• Vigência: Exercício 2025 (ano-calendário 2024)'
+        '- Salário Família: Lei 8.213/1991',
+        '- INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024',
+        '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024',
+        '- Vigência: Exercício 2025 (ano-calendário 2024)'
     ]
     
     # CORREÇÃO: Substituir '•' por '-' para evitar erro de encoding no FPDF
     for item in legislacao:
-        pdf.cell(0, 5, item.replace('•', '-'), 0, 1)
+        pdf.cell(0, 5, item, 0, 1)
     
     pdf.ln(5)
     
@@ -505,7 +505,8 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.set_font('Arial', '', 9)
     
     metodologia = [
-        '1. SALÁRIO FAMÍLIA: Pago para salários até R$ 1.906,04, no valor de R$ 65,00 por dependente',
+        # CORREÇÃO: Substituir '≤' por 'menores ou iguais a'
+        '1. SALÁRIO FAMÍLIA: Pago para salários menores ou iguais a R$ 1.906,04, no valor de R$ 65,00 por dependente',
         '2. INSS: Cálculo progressivo por faixas conforme tabela 2025',
         '3. IRRF: Base de cálculo = Salário Bruto - Dependentes × R$ 189,59 - INSS - Outros Descontos',
         '4. Aplicadas alíquotas progressivas conforme tabela IRRF 2025',
@@ -513,7 +514,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     ]
     
     for item in metodologia:
-        pdf.multi_cell(0, 5, item.replace('•', '-')) # Correção
+        pdf.multi_cell(0, 5, item)
         pdf.ln(1)
     
     pdf.ln(10)
@@ -528,7 +529,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
 
 def criar_link_download_pdf(pdf_output, filename):
     """Cria link para download do PDF"""
-    # CORREÇÃO: Usar o output diretamente (já é bytes)
+    # Usar o output diretamente (já é bytes)
     b64 = base64.b64encode(pdf_output).decode() 
     href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">📄 Clique aqui para baixar o PDF</a>'
     return href
@@ -645,7 +646,6 @@ with tab1:
         
         try:
             pdf = gerar_pdf_individual(dados_pdf)
-            # CORREÇÃO: Remover .encode('latin1')
             pdf_output = pdf.output(dest='S')
             
             st.markdown(
@@ -1067,8 +1067,9 @@ with tab3:
         """)
         
         st.subheader("📋 Como Calcular - Salário Família")
+        # CORREÇÃO: Substituir '≤' por '<=' no código de exemplo
         st.code(f"""
-Se Salário Bruto ≤ R$ 1.906,04:
+Se Salário Bruto <= R$ 1.906,04:
     Salário Família = Nº Dependentes × R$ 65,00
 Senão:
     Salário Família = R$ 0,00
@@ -1182,7 +1183,8 @@ IRRF = (Base de Cálculo × Alíquota) - Parcela a Deduzir
     
     st.subheader("⚠️ Observações Importantes")
     st.write("""
-    1. **Salário Família:** - Pago apenas para salários até R$ 1.906,04
+    1. **Salário Família:**
+        - Pago apenas para salários até R$ 1.906,04
         - Dependentes: filhos até 14 anos ou inválidos de qualquer idade
     
     2. **INSS:**
