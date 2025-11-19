@@ -384,6 +384,16 @@ with tab2:
             # Ler o arquivo CSV
             df = pd.read_csv(uploaded_file, sep=';')
             
+            # Converter colunas numéricas para float, tratando possíveis erros
+            df['Salario_Bruto'] = pd.to_numeric(df['Salario_Bruto'], errors='coerce').fillna(0)
+            df['Dependentes'] = pd.to_numeric(df['Dependentes'], errors='coerce').fillna(0).astype(int)
+            
+            # Se a coluna Outros_Descontos existir, converter também
+            if 'Outros_Descontos' in df.columns:
+                df['Outros_Descontos'] = pd.to_numeric(df['Outros_Descontos'], errors='coerce').fillna(0)
+            else:
+                df['Outros_Descontos'] = 0.0
+            
             st.success("✅ Arquivo carregado com sucesso!")
             
             # Verificar se as colunas necessárias existem
@@ -419,16 +429,20 @@ with tab2:
                         resultados = []
                         
                         for _, row in df.iterrows():
-                            inss = calcular_inss(row['Salario_Bruto'])
-                            sal_familia = calcular_salario_familia(row['Salario_Bruto'], row['Dependentes'])
-                            outros_desc = row.get('Outros_Descontos', 0)
-                            irrf = calcular_irrf(row['Salario_Bruto'], row['Dependentes'], inss, outros_desc)
-                            salario_liquido = row['Salario_Bruto'] + sal_familia - inss - irrf - outros_desc
+                            # Garantir que os valores são numéricos
+                            salario_bruto = float(row['Salario_Bruto'])
+                            dependentes = int(row['Dependentes'])
+                            outros_desc = float(row.get('Outros_Descontos', 0))
+                            
+                            inss = calcular_inss(salario_bruto)
+                            sal_familia = calcular_salario_familia(salario_bruto, dependentes)
+                            irrf = calcular_irrf(salario_bruto, dependentes, inss, outros_desc)
+                            salario_liquido = salario_bruto + sal_familia - inss - irrf - outros_desc
                             
                             resultados.append({
                                 'Nome': row['Nome'],
-                                'Salario_Bruto': row['Salario_Bruto'],
-                                'Dependentes': row['Dependentes'],
+                                'Salario_Bruto': salario_bruto,
+                                'Dependentes': dependentes,
                                 'Salario_Familia': sal_familia,
                                 'INSS': inss,
                                 'IRRF': irrf,
@@ -449,37 +463,191 @@ with tab2:
                         st.subheader("📊 Resumo Financeiro")
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            st.metric(
-                                "Total Salário Família", 
-                                formatar_moeda(df_resultado['Salario_Familia'].sum())
-                            )
+                            total_salario_familia = df_resultado['Salario_Familia'].sum()
+                            st.metric("Total Salário Família", formatar_moeda(total_salario_familia))
                         with col2:
-                            st.metric(
-                                "Total INSS", 
-                                formatar_moeda(df_resultado['INSS'].sum())
-                            )
+                            total_inss = df_resultado['INSS'].sum()
+                            st.metric("Total INSS", formatar_moeda(total_inss))
                         with col3:
-                            st.metric(
-                                "Total IRRF", 
-                                formatar_moeda(df_resultado['IRRF'].sum())
-                            )
+                            total_irrf = df_resultado['IRRF'].sum()
+                            st.metric("Total IRRF", formatar_moeda(total_irrf))
                         with col4:
-                            st.metric(
-                                "Folha Líquida Total", 
-                                formatar_moeda(df_resultado['Salario_Liquido'].sum())
+                            folha_liquida_total = df_resultado['Salario_Liquido'].sum()
+                            st.metric("Folha Líquida Total", formatar_moeda(folha_liquida_total))
+                        
+                        # Download dos resultados em CSV
+                        st.subheader("💾 Exportar Resultados")
+                        col_csv, col_pdf = st.columns(2)
+                        
+                        with col_csv:
+                            csv_resultado = df_resultado.to_csv(index=False, sep=';')
+                            st.download_button(
+                                label="📥 Baixar Resultados em CSV",
+                                data=csv_resultado,
+                                file_name=f"auditoria_folha_{datetime.now().strftime('%d%m%Y_%H%M')}.csv",
+                                mime="text/csv",
+                                help="Baixe os resultados completos da auditoria"
                             )
                         
-                        # Download dos resultados
-                        st.subheader("💾 Exportar Resultados")
-                        csv_resultado = df_resultado.to_csv(index=False, sep=';')
-                        
-                        st.download_button(
-                            label="📥 Baixar Resultados em CSV",
-                            data=csv_resultado,
-                            file_name=f"auditoria_folha_{datetime.now().strftime('%d%m%Y_%H%M')}.csv",
-                            mime="text/csv",
-                            help="Baixe os resultados completos da auditoria"
-                        )
+                        with col_pdf:
+                            # Gerar PDF da auditoria completa
+                            if st.button("📄 Gerar Relatório PDF Completo", type="secondary"):
+                                with st.spinner("Gerando relatório PDF..."):
+                                    pdf = FPDF()
+                                    pdf.add_page()
+                                    
+                                    # Cabeçalho
+                                    pdf.set_font('Arial', 'B', 16)
+                                    pdf.cell(0, 10, 'RELATÓRIO DE AUDITORIA EM LOTE - FOLHA DE PAGAMENTO', 0, 1, 'C')
+                                    pdf.ln(5)
+                                    
+                                    # Informações da Auditoria
+                                    pdf.set_font('Arial', 'B', 12)
+                                    pdf.cell(0, 10, 'INFORMAÇÕES DA AUDITORIA', 0, 1)
+                                    pdf.set_font('Arial', '', 10)
+                                    pdf.cell(0, 6, f'Data da Análise: {formatar_data(datetime.now())}', 0, 1)
+                                    pdf.cell(0, 6, f'Total de Funcionários Auditados: {len(df_resultado)}', 0, 1)
+                                    pdf.cell(0, 6, f'Arquivo Processado: {uploaded_file.name}', 0, 1)
+                                    pdf.ln(5)
+                                    
+                                    # Resumo Financeiro
+                                    pdf.set_font('Arial', 'B', 12)
+                                    pdf.cell(0, 10, 'RESUMO FINANCEIRO', 0, 1)
+                                    pdf.set_font('Arial', '', 10)
+                                    
+                                    resumo = [
+                                        ('Total Salário Bruto', formatar_moeda(df_resultado['Salario_Bruto'].sum())),
+                                        ('Total Salário Família', formatar_moeda(total_salario_familia)),
+                                        ('Total INSS Recolhido', formatar_moeda(total_inss)),
+                                        ('Total IRRF Recolhido', formatar_moeda(total_irrf)),
+                                        ('Folha de Pagamento Líquida', formatar_moeda(folha_liquida_total))
+                                    ]
+                                    
+                                    for descricao, valor in resumo:
+                                        pdf.cell(100, 7, descricao)
+                                        pdf.cell(0, 7, valor, 0, 1)
+                                    
+                                    pdf.ln(5)
+                                    
+                                    # Estatísticas Detalhadas
+                                    pdf.set_font('Arial', 'B', 12)
+                                    pdf.cell(0, 10, 'ESTATÍSTICAS DETALHADAS', 0, 1)
+                                    pdf.set_font('Arial', '', 10)
+                                    
+                                    estatisticas = [
+                                        ('Média Salarial', formatar_moeda(df_resultado['Salario_Bruto'].mean())),
+                                        ('Maior Salário', formatar_moeda(df_resultado['Salario_Bruto'].max())),
+                                        ('Menor Salário', formatar_moeda(df_resultado['Salario_Bruto'].min())),
+                                        ('Total de Dependentes', str(df_resultado['Dependentes'].sum())),
+                                        ('Func. Elegíveis Salário Família', str(len(df_resultado[df_resultado['Elegivel_Salario_Familia'] == 'Sim']))),
+                                        ('Média de Dependentes', f"{df_resultado['Dependentes'].mean():.1f}")
+                                    ]
+                                    
+                                    for descricao, valor in estatisticas:
+                                        pdf.cell(100, 7, descricao)
+                                        pdf.cell(0, 7, valor, 0, 1)
+                                    
+                                    pdf.ln(10)
+                                    
+                                    # Metodologia de Cálculo
+                                    pdf.set_font('Arial', 'B', 12)
+                                    pdf.cell(0, 10, 'METODOLOGIA DE CÁLCULO APLICADA', 0, 1)
+                                    pdf.set_font('Arial', '', 9)
+                                    
+                                    metodologia = [
+                                        '1. SALÁRIO FAMÍLIA: Pago para salários até R$ 1.906,04, no valor de R$ 65,00 por dependente',
+                                        '2. INSS: Cálculo progressivo por faixas conforme tabela 2025',
+                                        '3. IRRF: Base de cálculo = Salário Bruto - Dependentes × R$ 189,59 - INSS - Outros Descontos',
+                                        '4. Aplicadas alíquotas progressivas conforme tabela IRRF 2025',
+                                        '5. Salário Líquido = Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
+                                    ]
+                                    
+                                    for item in metodologia:
+                                        pdf.multi_cell(0, 5, item)
+                                        pdf.ln(1)
+                                    
+                                    pdf.ln(5)
+                                    
+                                    # Tabela de Resultados (primeiros 15 registros)
+                                    if len(df_resultado) > 0:
+                                        pdf.set_font('Arial', 'B', 12)
+                                        pdf.cell(0, 10, f'RESULTADOS DETALHADOS (Primeiros {min(15, len(df_resultado))} de {len(df_resultado)})', 0, 1)
+                                        
+                                        # Cabeçalho da tabela
+                                        pdf.set_font('Arial', 'B', 8)
+                                        colunas = ['Nome', 'Salário', 'Dep', 'Sal Fam', 'INSS', 'IRRF', 'Líquido']
+                                        larguras = [40, 25, 15, 25, 25, 25, 30]
+                                        
+                                        for i, coluna in enumerate(colunas):
+                                            pdf.cell(larguras[i], 8, coluna, 1, 0, 'C')
+                                        pdf.ln()
+                                        
+                                        # Dados da tabela
+                                        pdf.set_font('Arial', '', 7)
+                                        for _, row in df_resultado.head(15).iterrows():
+                                            # Nome (truncado se necessário)
+                                            nome = row['Nome'][:20] + '...' if len(row['Nome']) > 20 else row['Nome']
+                                            pdf.cell(larguras[0], 6, nome, 1)
+                                            
+                                            # Valores numéricos
+                                            pdf.cell(larguras[1], 6, formatar_moeda(row['Salario_Bruto']), 1, 0, 'R')
+                                            pdf.cell(larguras[2], 6, str(row['Dependentes']), 1, 0, 'C')
+                                            pdf.cell(larguras[3], 6, formatar_moeda(row['Salario_Familia']), 1, 0, 'R')
+                                            pdf.cell(larguras[4], 6, formatar_moeda(row['INSS']), 1, 0, 'R')
+                                            pdf.cell(larguras[5], 6, formatar_moeda(row['IRRF']), 1, 0, 'R')
+                                            pdf.cell(larguras[6], 6, formatar_moeda(row['Salario_Liquido']), 1, 0, 'R')
+                                            pdf.ln()
+                                        
+                                        if len(df_resultado) > 15:
+                                            pdf.set_font('Arial', 'I', 8)
+                                            pdf.cell(0, 6, f'... e mais {len(df_resultado) - 15} registros', 0, 1)
+                                    
+                                    pdf.ln(10)
+                                    
+                                    # Tabelas de Referência
+                                    pdf.set_font('Arial', 'B', 12)
+                                    pdf.cell(0, 10, 'TABELAS DE REFERÊNCIA 2025', 0, 1)
+                                    
+                                    # Tabela INSS
+                                    pdf.set_font('Arial', 'B', 10)
+                                    pdf.cell(0, 8, 'TABELA INSS 2025', 0, 1)
+                                    pdf.set_font('Arial', '', 8)
+                                    pdf.cell(60, 6, 'Faixa Salarial', 1)
+                                    pdf.cell(30, 6, 'Alíquota', 1)
+                                    pdf.cell(0, 6, 'Valor', 1, 1)
+                                    
+                                    faixas_inss = [
+                                        (f'Até {formatar_moeda(1518.00)}', '7,5%', formatar_moeda(1518.00 * 0.075)),
+                                        (f'{formatar_moeda(1518.01)} a {formatar_moeda(2793.88)}', '9,0%', formatar_moeda((2793.88 - 1518.00) * 0.09)),
+                                        (f'{formatar_moeda(2793.89)} a {formatar_moeda(4190.83)}', '12,0%', formatar_moeda((4190.83 - 2793.88) * 0.12)),
+                                        (f'{formatar_moeda(4190.84)} a {formatar_moeda(8157.41)}', '14,0%', formatar_moeda((8157.41 - 4190.83) * 0.14))
+                                    ]
+                                    
+                                    for faixa, aliquota, valor in faixas_inss:
+                                        pdf.cell(60, 6, faixa, 1)
+                                        pdf.cell(30, 6, aliquota, 1)
+                                        pdf.cell(0, 6, valor, 1, 1)
+                                    
+                                    pdf.cell(0, 3, '', 0, 1)
+                                    pdf.cell(0, 6, f'Teto máximo do INSS: {formatar_moeda(8157.41)}', 0, 1)
+                                    pdf.ln(5)
+                                    
+                                    # Rodapé
+                                    pdf.set_font('Arial', 'I', 8)
+                                    pdf.cell(0, 10, 'Relatório gerado automaticamente pelo Sistema de Auditoria de Folha de Pagamento.', 0, 1, 'C')
+                                    pdf.cell(0, 5, 'Consulte um contador para validação oficial dos cálculos.', 0, 1, 'C')
+                                    pdf.cell(0, 5, f'Processado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
+                                    
+                                    pdf_output = pdf.output(dest='S').encode('latin1')
+                                    
+                                    st.markdown(
+                                        criar_link_download_pdf(
+                                            pdf_output, 
+                                            f"Auditoria_Completa_{datetime.now().strftime('%d%m%Y_%H%M')}.pdf"
+                                        ), 
+                                        unsafe_allow_html=True
+                                    )
+                                    st.success("📄 PDF gerado com sucesso!")
                         
         except Exception as e:
             st.error(f"❌ Erro ao processar arquivo: {e}")
@@ -489,8 +657,8 @@ with tab2:
             - Confirme que as colunas estão separadas por ponto e vírgula
             - Certifique-se de que números usam ponto como decimal (ex: 1500.00)
             - Verifique se não há linhas vazias no arquivo
+            - As colunas devem ser: Nome, Salario_Bruto, Dependentes, Outros_Descontos
             """)
-
 with tab3:
     st.header("Informações Técnicas 2025")
     
