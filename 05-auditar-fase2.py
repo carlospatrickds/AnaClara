@@ -899,9 +899,9 @@ with tab3:
     
     exemplos = pd.DataFrame({
         'Cenário': [
-            'Funcionário com baixa renda + dependentes',
-            'Funcionário classe média',
-            'Funcionário alta renda',
+            'Funcionário  FAIXA UM + dependentes',
+            'Funcionário FAIXA 2',
+            'Funcionário FAIXA 3',
             'Funcionário no teto do INSS'
         ],
         'Salário Bruto': [
