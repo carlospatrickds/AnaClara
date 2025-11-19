@@ -162,15 +162,15 @@ def gerar_pdf_individual(dados):
     
     # Mostrar se houve Salário Família
     if dados["salario_familia"] != "R$ 0,00":
-        pdf.cell(0, 6, '✅ SALARIO FAMILIA APLICADO: Sim', 0, 1)
+        pdf.cell(0, 6, 'SALARIO FAMILIA APLICADO: Sim', 0, 1)
     else:
-        pdf.cell(0, 6, '❌ SALARIO FAMILIA APLICADO: Nao', 0, 1)
+        pdf.cell(0, 6, 'SALARIO FAMILIA APLICADO: Nao', 0, 1)
     
     # Mostrar se houve IRRF
     if dados["irrf"] != "R$ 0,00":
-        pdf.cell(0, 6, '✅ IRRF APLICADO: Sim', 0, 1)
+        pdf.cell(0, 6, 'IRRF APLICADO: Sim', 0, 1)
     else:
-        pdf.cell(0, 6, '❌ IRRF APLICADO: Nao (Isento)', 0, 1)
+        pdf.cell(0, 6, 'IRRF APLICADO: Nao (Isento)', 0, 1)
     
     pdf.ln(10)
     
@@ -250,20 +250,20 @@ def gerar_pdf_individual(dados):
     pdf.cell(0, 6, f'Deducao por dependente: {formatar_moeda(DESCONTO_DEPENDENTE_IR)}', 0, 1)
     pdf.ln(10)
     
-    # Legislação de Referência
+    # Legislação de Referência - SEM CARACTERES ESPECIAIS
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'LEGISLACAO DE REFERENCIA', 0, 1)
     pdf.set_font('Arial', '', 9)
     
     legislacao = [
-        '• Salario Familia: Lei 8.213/1991',
-        '• INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024', 
-        '• IRRF: Lei 7.713/1988 e Instrucao Normativa RFB 2.126/2024',
-        '• Vigencia: Exercicio 2025 (ano-calendario 2024)'
+        'Salario Familia: Lei 8.213/1991',
+        'INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024', 
+        'IRRF: Lei 7.713/1988 e Instrucao Normativa RFB 2.126/2024',
+        'Vigencia: Exercicio 2025 (ano-calendario 2024)'
     ]
     
     for item in legislacao:
-        pdf.cell(0, 5, item, 0, 1)
+        pdf.cell(0, 5, f'- {item}', 0, 1)
     
     pdf.ln(5)
     
@@ -273,11 +273,11 @@ def gerar_pdf_individual(dados):
     pdf.set_font('Arial', '', 9)
     
     metodologia = [
-        '1. SALARIO FAMILIA: Verifica se salario bruto ≤ R$ 1.906,04',
-        '2. CALCULO: Nº Dependentes × R$ 65,00 (se elegivel)',
+        '1. SALARIO FAMILIA: Verifica se salario bruto <= R$ 1.906,04',
+        '2. CALCULO: Nº Dependentes x R$ 65,00 (se elegivel)',
         '3. INSS: Calculo progressivo por faixas acumulativas',
-        '4. BASE IRRF: Salario Bruto - Dependentes × R$ 189,59 - INSS - Outros Descontos',
-        '5. IRRF: (Base × Aliquota) - Parcela a Deduzir (tabela progressiva)',
+        '4. BASE IRRF: Salario Bruto - Dependentes x R$ 189,59 - INSS - Outros Descontos',
+        '5. IRRF: (Base x Aliquota) - Parcela a Deduzir (tabela progressiva)',
         '6. SALARIO LIQUIDO: Salario Bruto + Salario Familia - INSS - IRRF - Outros Descontos'
     ]
     
@@ -473,20 +473,20 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.cell(0, 6, f'Deducao por dependente: {formatar_moeda(DESCONTO_DEPENDENTE_IR)}', 0, 1)
     pdf.ln(10)
     
-    # Legislação de Referência
+    # Legislação de Referência - SEM CARACTERES ESPECIAIS
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'LEGISLACAO DE REFERENCIA', 0, 1)
     pdf.set_font('Arial', '', 9)
     
     legislacao = [
-        '• Salario Familia: Lei 8.213/1991',
-        '• INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024', 
-        '• IRRF: Lei 7.713/1988 e Instrucao Normativa RFB 2.126/2024',
-        '• Vigencia: Exercicio 2025 (ano-calendario 2024)'
+        'Salario Familia: Lei 8.213/1991',
+        'INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024', 
+        'IRRF: Lei 7.713/1988 e Instrucao Normativa RFB 2.126/2024',
+        'Vigencia: Exercicio 2025 (ano-calendario 2024)'
     ]
     
     for item in legislacao:
-        pdf.cell(0, 5, item, 0, 1)
+        pdf.cell(0, 5, f'- {item}', 0, 1)
     
     pdf.ln(5)
     
@@ -498,7 +498,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     metodologia = [
         '1. SALARIO FAMILIA: Pago para salarios ate R$ 1.906,04, no valor de R$ 65,00 por dependente',
         '2. INSS: Calculo progressivo por faixas conforme tabela 2025',
-        '3. IRRF: Base de calculo = Salario Bruto - Dependentes × R$ 189,59 - INSS - Outros Descontos',
+        '3. IRRF: Base de calculo = Salario Bruto - Dependentes x R$ 189,59 - INSS - Outros Descontos',
         '4. Aplicadas aliquotas progressivas conforme tabela IRRF 2025',
         '5. Salario Liquido = Salario Bruto + Salario Familia - INSS - IRRF - Outros Descontos'
     ]
@@ -516,6 +516,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.cell(0, 5, f'Processado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}', 0, 1, 'C')
     
     return pdf
+
 def criar_link_download_pdf(pdf_output, filename):
     """Cria link para download do PDF"""
     b64 = base64.b64encode(pdf_output).decode()
