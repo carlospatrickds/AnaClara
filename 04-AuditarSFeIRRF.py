@@ -961,7 +961,7 @@ with tab2:
             st.error(f"❌ Erro ao processar dados: {e}")
     
     # CORREÇÃO: VERIFICAR SE EXISTE NO SESSION STATE ANTES DE USAR
-    if hasattr(st.session_state, 'df_resultado') and st.session_state.df_resultado is not None:
+    if st.session_state.df_resultado is not None:
         df_resultado = st.session_state.df_resultado
         
         # Mostrar de qual fonte vieram os dados
