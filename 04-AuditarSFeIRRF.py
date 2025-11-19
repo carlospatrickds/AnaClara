@@ -546,8 +546,6 @@ def criar_link_download_pdf(pdf_output, filename):
 # Interface principal
 tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
 
-tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
-
 with tab1:
     st.header("Cálculo Individual")
     
