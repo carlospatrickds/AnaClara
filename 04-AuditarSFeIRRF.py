@@ -637,6 +637,19 @@ with tab1:
         
         # Gerar PDF
         st.subheader("📄 Gerar Relatório PDF")
+        # NOVO: Capturar a data e hora exatas do processamento no Brasil
+        data_hora_agora = get_br_datetime_now()
+        data_hora_formatada = data_hora_agora.strftime("%d/%m/%Y %H:%M") # Formato desejado: 19/11/2025 11:30
+        
+        dados_pdf = {
+            "data_analise": formatar_data(data_hora_agora), # Atualiza a data de análise no cabeçalho
+            "competencia": formatar_data(competencia),
+            # ... (demais dados do PDF)
+            "base_irrf": formatar_moeda(base_irrf),
+            
+            # NOVO: Chave para a hora no rodapé
+            "data_e_hora_processamento": data_hora_formatada 
+        }
         dados_pdf = {
             "data_analise": formatar_data(get_br_datetime_now()),
             "competencia": formatar_data(competencia),
