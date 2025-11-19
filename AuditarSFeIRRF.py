@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from fpdf import FPDF
+import base64
+from io import BytesIO
 
 # Configuração básica da página
 st.set_page_config(
@@ -47,9 +50,7 @@ def calcular_inss(salario_bruto):
     if salario_bruto <= 0:
         return 0.0
     
-    # Se o salário for maior que o teto, usa o teto como base
     salario_calculo = min(salario_bruto, TABELA_INSS[3]["limite"])
-    
     inss = 0.0
     salario_restante = salario_calculo
     
@@ -58,12 +59,10 @@ def calcular_inss(salario_bruto):
             break
             
         if i == 0:
-            # Primeira faixa
             valor_faixa = min(salario_restante, faixa["limite"])
             inss += valor_faixa * faixa["aliquota"]
             salario_restante -= valor_faixa
         else:
-            # Faixas seguintes
             faixa_anterior = TABELA_INSS[i-1]
             valor_faixa = min(salario_restante, faixa["limite"] - faixa_anterior["limite"])
             inss += valor_faixa * faixa["aliquota"]
@@ -91,7 +90,133 @@ def calcular_irrf(salario_bruto, dependentes, inss, outros_descontos=0):
     
     return 0.0
 
-# Interface principal - CRIAR AS TABS PRIMEIRO
+def gerar_pdf_individual(dados):
+    """Gera PDF profissional para cálculo individual"""
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Cabeçalho
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'RELATÓRIO DE AUDITORIA - FOLHA DE PAGAMENTO', 0, 1, 'C')
+    pdf.ln(5)
+    
+    # Informações da Empresa
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'INFORMAÇÕES DA EMPRESA', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 6, f'Data da Análise: {dados["data_analise"]}', 0, 1)
+    pdf.cell(0, 6, f'Competência: {dados["competencia"]}', 0, 1)
+    pdf.ln(5)
+    
+    # Dados do Funcionário
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'DADOS DO FUNCIONÁRIO', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 6, f'Nome: {dados["nome"]}', 0, 1)
+    pdf.cell(0, 6, f'Salário Bruto: {dados["salario_bruto"]}', 0, 1)
+    pdf.cell(0, 6, f'Dependentes: {dados["dependentes"]}', 0, 1)
+    pdf.cell(0, 6, f'Outros Descontos: {dados["outros_descontos"]}', 0, 1)
+    pdf.ln(5)
+    
+    # Resultados dos Cálculos
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'RESULTADOS DOS CÁLCULOS', 0, 1)
+    
+    resultados = [
+        ('Salário Bruto', dados["salario_bruto"]),
+        ('Salário Família', dados["salario_familia"]),
+        ('INSS', dados["inss"]),
+        ('IRRF', dados["irrf"]),
+        ('Outros Descontos', dados["outros_descontos"]),
+        ('Total de Descontos', dados["total_descontos"]),
+        ('SALÁRIO LÍQUIDO', dados["salario_liquido"])
+    ]
+    
+    pdf.set_font('Arial', '', 10)
+    for descricao, valor in resultados:
+        if 'SALÁRIO LÍQUIDO' in descricao:
+            pdf.set_font('Arial', 'B', 11)
+        pdf.cell(100, 7, descricao)
+        pdf.cell(0, 7, valor, 0, 1)
+        if 'SALÁRIO LÍQUIDO' in descricao:
+            pdf.set_font('Arial', '', 10)
+    pdf.ln(5)
+    
+    # Informações Adicionais
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'INFORMAÇÕES ADICIONAIS', 0, 1)
+    pdf.set_font('Arial', '', 10)
+    pdf.cell(0, 6, f'Elegível para Salário Família: {dados["elegivel_salario_familia"]}', 0, 1)
+    pdf.cell(0, 6, f'Base de Cálculo IRRF: {dados["base_irrf"]}', 0, 1)
+    pdf.ln(10)
+    
+    # Tabelas de Referência
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'TABELAS DE REFERÊNCIA 2025', 0, 1)
+    
+    # Tabela INSS
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, 'TABELA INSS 2025', 0, 1)
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(60, 6, 'Faixa Salarial', 1)
+    pdf.cell(30, 6, 'Alíquota', 1)
+    pdf.cell(0, 6, 'Valor', 1, 1)
+    
+    faixas_inss = [
+        (f'Até {formatar_moeda(1518.00)}', '7,5%', formatar_moeda(1518.00 * 0.075)),
+        (f'{formatar_moeda(1518.01)} a {formatar_moeda(2793.88)}', '9,0%', formatar_moeda((2793.88 - 1518.00) * 0.09)),
+        (f'{formatar_moeda(2793.89)} a {formatar_moeda(4190.83)}', '12,0%', formatar_moeda((4190.83 - 2793.88) * 0.12)),
+        (f'{formatar_moeda(4190.84)} a {formatar_moeda(8157.41)}', '14,0%', formatar_moeda((8157.41 - 4190.83) * 0.14))
+    ]
+    
+    for faixa, aliquota, valor in faixas_inss:
+        pdf.cell(60, 6, faixa, 1)
+        pdf.cell(30, 6, aliquota, 1)
+        pdf.cell(0, 6, valor, 1, 1)
+    
+    pdf.cell(0, 3, '', 0, 1)
+    pdf.cell(0, 6, f'Teto máximo do INSS: {formatar_moeda(8157.41)}', 0, 1)
+    pdf.ln(5)
+    
+    # Tabela IRRF
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, 'TABELA IRRF 2025', 0, 1)
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(60, 6, 'Base de Cálculo', 1)
+    pdf.cell(25, 6, 'Alíquota', 1)
+    pdf.cell(35, 6, 'Dedução', 1)
+    pdf.cell(0, 6, 'Faixa', 1, 1)
+    
+    faixas_irrf = [
+        (f'Até {formatar_moeda(2428.80)}', '0%', formatar_moeda(0), 'Isento'),
+        (f'{formatar_moeda(2428.81)} a {formatar_moeda(2826.65)}', '7,5%', formatar_moeda(182.16), '1ª'),
+        (f'{formatar_moeda(2826.66)} a {formatar_moeda(3751.05)}', '15%', formatar_moeda(394.16), '2ª'),
+        (f'{formatar_moeda(3751.06)} a {formatar_moeda(4664.68)}', '22,5%', formatar_moeda(675.49), '3ª'),
+        (f'Acima de {formatar_moeda(4664.68)}', '27,5%', formatar_moeda(916.90), '4ª')
+    ]
+    
+    for base, aliquota, deducao, faixa in faixas_irrf:
+        pdf.cell(60, 6, base, 1)
+        pdf.cell(25, 6, aliquota, 1)
+        pdf.cell(35, 6, deducao, 1)
+        pdf.cell(0, 6, faixa, 1, 1)
+    
+    pdf.ln(10)
+    
+    # Rodapé
+    pdf.set_font('Arial', 'I', 8)
+    pdf.cell(0, 10, 'Este relatório foi gerado automaticamente pelo Sistema de Auditoria de Folha de Pagamento.', 0, 1, 'C')
+    pdf.cell(0, 5, 'Consulte um contador para validação oficial dos cálculos.', 0, 1, 'C')
+    
+    return pdf
+
+def criar_link_download_pdf(pdf_output, filename):
+    """Cria link para download do PDF"""
+    b64 = base64.b64encode(pdf_output).decode()
+    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">📄 Clique aqui para baixar o PDF</a>'
+    return href
+
+# Interface principal
 tab1, tab2, tab3 = st.tabs(["🧮 Cálculo Individual", "📊 Auditoria em Lote", "ℹ️ Informações"])
 
 with tab1:
@@ -128,6 +253,7 @@ with tab1:
         total_descontos = inss_valor + irrf_valor + outros_descontos
         total_acrescimos = sal_familia
         salario_liquido = salario - total_descontos + total_acrescimos
+        base_irrf = salario - (dependentes * DESCONTO_DEPENDENTE_IR) - inss_valor - outros_descontos
         
         # Mostrar resultados
         st.success("Cálculos realizados com sucesso!")
@@ -175,13 +301,41 @@ with tab1:
         with col_info1:
             st.write(f"**Competência Analisada:** {formatar_data(competencia)}")
             st.write(f"**Dependentes para IRRF:** {dependentes}")
-            base_irrf = salario - (dependentes * DESCONTO_DEPENDENTE_IR) - inss_valor - outros_descontos
             st.write(f"**Base cálculo IRRF:** {formatar_moeda(base_irrf)}")
         
         with col_info2:
             st.write(f"**Elegível Salário Família:** {'Sim' if sal_familia > 0 else 'Não'}")
             st.write(f"**Total de Descontos:** {formatar_moeda(total_descontos)}")
             st.write(f"**Total de Acréscimos:** {formatar_moeda(total_acrescimos)}")
+        
+        # Gerar PDF
+        st.subheader("📄 Gerar Relatório PDF")
+        dados_pdf = {
+            "data_analise": formatar_data(datetime.now()),
+            "competencia": formatar_data(competencia),
+            "nome": nome,
+            "salario_bruto": formatar_moeda(salario),
+            "dependentes": dependentes,
+            "outros_descontos": formatar_moeda(outros_descontos),
+            "salario_familia": formatar_moeda(sal_familia),
+            "inss": formatar_moeda(inss_valor),
+            "irrf": formatar_moeda(irrf_valor),
+            "total_descontos": formatar_moeda(total_descontos),
+            "salario_liquido": formatar_moeda(salario_liquido),
+            "elegivel_salario_familia": 'Sim' if sal_familia > 0 else 'Não',
+            "base_irrf": formatar_moeda(base_irrf)
+        }
+        
+        pdf = gerar_pdf_individual(dados_pdf)
+        pdf_output = pdf.output(dest='S').encode('latin1')
+        
+        st.markdown(
+            criar_link_download_pdf(
+                pdf_output, 
+                f"Auditoria_Folha_{nome.replace(' ', '_')}_{datetime.now().strftime('%d%m%Y')}.pdf"
+            ), 
+            unsafe_allow_html=True
+        )
 
 with tab2:
     st.header("Auditoria em Lote")
@@ -346,62 +500,4 @@ with tab3:
         st.subheader("💰 Salário Família")
         st.write(f"""
         - **Limite de salário:** {formatar_moeda(SALARIO_FAMILIA_LIMITE)}
-        - **Valor por dependente:** {formatar_moeda(VALOR_POR_DEPENDENTE)}
-        - **Dedução IR por dependente:** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
-        - **Requisito:** Salário igual ou inferior ao limite
-        - **Dependentes:** Filhos até 14 anos ou inválidos de qualquer idade
-        """)
-    
-    with col_info2:
-        st.subheader("📊 Tabela INSS 2025")
-        tabela_inss_df = pd.DataFrame([
-            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1518.00), "Alíquota": "7,5%"},
-            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1518.01) + " a " + formatar_moeda(2793.88), "Alíquota": "9,0%"},
-            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2793.89) + " a " + formatar_moeda(4190.83), "Alíquota": "12,0%"},
-            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(4190.84) + " a " + formatar_moeda(8157.41), "Alíquota": "14,0%"}
-        ])
-        st.dataframe(tabela_inss_df, use_container_width=True, hide_index=True)
-        st.caption(f"**Teto máximo do INSS:** {formatar_moeda(8157.41)}")
-    
-    st.subheader("📈 Tabela IRRF 2025")
-    tabela_irrf_df = pd.DataFrame([
-        {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2428.80), "Alíquota": "0%", "Dedução": formatar_moeda(0.00)},
-        {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2428.81) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Dedução": formatar_moeda(182.16)},
-        {"Faixa": "3ª", "Base de Cálculo": formatar_moeda(2826.66) + " a " + formatar_moeda(3751.05), "Alíquota": "15%", "Dedução": formatar_moeda(394.16)},
-        {"Faixa": "4ª", "Base de Cálculo": formatar_moeda(3751.06) + " a " + formatar_moeda(4664.68), "Alíquota": "22,5%", "Dedução": formatar_moeda(675.49)},
-        {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Dedução": formatar_moeda(916.90)}
-    ])
-    st.dataframe(tabela_irrf_df, use_container_width=True, hide_index=True)
-    
-    st.subheader("🧮 Exemplos de Cálculo INSS")
-    exemplos = pd.DataFrame({
-        'Salário Bruto': [
-            formatar_moeda(1500.00),
-            formatar_moeda(2800.00), 
-            formatar_moeda(4200.00),
-            formatar_moeda(8500.00)
-        ],
-        'Cálculo INSS': [
-            f"R$ 1.500,00 × 7,5% = {formatar_moeda(112.50)}",
-            f"R$ 1.518,00 × 7,5% + R$ 1.282,00 × 9% = {formatar_moeda(113.85 + 115.38)}",
-            f"R$ 1.518,00 × 7,5% + R$ 1.275,88 × 9% + R$ 1.406,12 × 12% = {formatar_moeda(113.85 + 114.83 + 168.73)}",
-            f"Teto máximo: {formatar_moeda(8157.41)} = {formatar_moeda(calcular_inss(8500.00))}"
-        ]
-    })
-    st.dataframe(exemplos, use_container_width=True, hide_index=True)
-
-st.sidebar.header("ℹ️ Sobre")
-st.sidebar.info("""
-**Auditoria Folha de Pagamento 2025**
-
-Cálculos baseados na legislação vigente:
-- Salário Família
-- INSS (Tabela 2025)
-- IRRF (Tabela 2025)
-
-⚠️ Consulte um contador para validação oficial.
-""")
-
-# Rodapé
-st.markdown("---")
-st.caption(f"📅 Competência de referência: {formatar_data(datetime.now())} | 🏛 Legislação 2025")
+        - **Valor por dependente:** {formatar_
