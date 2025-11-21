@@ -1,4 +1,4 @@
-Import streamlit as st
+ Import streamlit as st
 import pandas as pd
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -529,4 +529,4 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         pdf.cell(0, 10, f'RESULTADOS DETALHADOS (Primeiros {min(15, len(df_resultado))} de {len(df_resultado)})', 0, 1)
         
         pdf.set_font('Arial', 'B', 8)
-        colunas = ['Nom
+        # CORREÇÃO: Col
