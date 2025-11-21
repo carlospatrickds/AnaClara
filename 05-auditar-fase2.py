@@ -24,10 +24,33 @@ if 'dados_manuais' not in st.session_state:
 if 'ultima_opcao' not in st.session_state:
     st.session_state.ultima_opcao = "📁 Upload de CSV"
 
+# --- FUNÇÕES DE UTILIDADE (MOVIDAS PARA CIMA) ---
+
+def formatar_moeda(valor):
+    """Formata valor em moeda brasileira"""
+    if pd.isna(valor) or valor is None:
+        return "R$ 0,00"
+    # Usa 'X' temporariamente para evitar conflito entre '.' de milhar e ',' de decimal
+    return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def formatar_data(data):
+    """Formata data no padrão brasileiro"""
+    if isinstance(data, str):
+        return data
+    return data.strftime("%d/%m/%Y")
+
+def get_br_datetime_now():
+    """Retorna o objeto datetime configurado para o fuso horário de São Paulo (BRT/GMT-3)"""
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+
+# --- FIM DAS FUNÇÕES DE UTILIDADE ---
+
+
 st.title("💰 Auditoria de Folha de Pagamento 2025 - Ana Clara")
 st.markdown("### Cálculo de Salário Família, INSS e IRRF")
 
 # --- INPUT DE DATA DE COMPETÊNCIA ---
+# A chamada a get_br_datetime_now() agora está segura
 data_competencia = st.date_input(
     "Data de Competência para a Auditoria (Mês/Ano)",
     datetime(get_br_datetime_now().year, get_br_datetime_now().month, 1).date(),
@@ -86,25 +109,6 @@ SALARIO_FAMILIA_LIMITE_2024 = 1819.65
 VALOR_POR_DEPENDENTE_2024 = 62.04
 DESCONTO_DEPENDENTE_IR_2024 = 189.59 # Conforme imagem 1000060094.png
 
-
-# --- FUNÇÕES DE UTILIDADE ---
-
-def formatar_moeda(valor):
-    """Formata valor em moeda brasileira"""
-    if pd.isna(valor) or valor is None:
-        return "R$ 0,00"
-    # Usa 'X' temporariamente para evitar conflito entre '.' de milhar e ',' de decimal
-    return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def formatar_data(data):
-    """Formata data no padrão brasileiro"""
-    if isinstance(data, str):
-        return data
-    return data.strftime("%d/%m/%Y")
-
-def get_br_datetime_now():
-    """Retorna o objeto datetime configurado para o fuso horário de São Paulo (BRT/GMT-3)"""
-    return datetime.now(ZoneInfo("America/Sao_Paulo"))
 
 # --- FUNÇÕES DE CÁLCULO (MODIFICADAS PARA USAR O ANO DE COMPETÊNCIA) ---
 
@@ -529,4 +533,346 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         pdf.cell(0, 10, f'RESULTADOS DETALHADOS (Primeiros {min(15, len(df_resultado))} de {len(df_resultado)})', 0, 1)
         
         pdf.set_font('Arial', 'B', 8)
-        # CORREÇÃO: Col
+        # CORREÇÃO: Colunas definidas em linha única
+        colunas = ['Nome', 'Salário', 'Dep', 'Sal Fam', 'INSS', 'IRRF', 'Líquido']
+        larguras = [40, 25, 15, 25, 25, 25, 30]
+        
+        for i, coluna in enumerate(colunas):
+            pdf.cell(larguras[i], 8, coluna, 1, 0, 'C')
+        pdf.ln()
+        
+        pdf.set_font('Arial', '', 7)
+        for _, row in df_resultado.head(15).iterrows():
+            nome = str(row['Nome'])[:20] + '...' if len(str(row['Nome'])) > 20 else str(row['Nome'])
+            pdf.cell(larguras[0], 6, nome, 1)
+            pdf.cell(larguras[1], 6, formatar_moeda(row['Salario_Bruto']), 1, 0, 'R')
+            pdf.cell(larguras[2], 6, str(row['Dependentes']), 1, 0, 'C')
+            pdf.cell(larguras[3], 6, formatar_moeda(row['Salario_Familia']), 1, 0, 'R')
+            pdf.cell(larguras[4], 6, formatar_moeda(row['INSS']), 1, 0, 'R')
+            pdf.cell(larguras[5], 6, formatar_moeda(row['IRRF']), 1, 0, 'R')
+            pdf.cell(larguras[6], 6, formatar_moeda(row['Salario_Liquido']), 1, 0, 'R')
+            pdf.ln()
+        
+        if len(df_resultado) > 15:
+            pdf.set_font('Arial', 'I', 8)
+            pdf.cell(0, 6, f'... e mais {len(df_resultado) - 15} registros', 0, 1)
+    
+    pdf.ln(10)
+
+    # --- INCLUSÃO DAS TABELAS NO PDF EM LOTE (DINÂMICO PELO ANO) ---
+    
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, f'TABELAS DE REFERÊNCIA {const["ano"]}', 0, 1)
+    
+    # Tabela Salário Família
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, f'SALÁRIO FAMÍLIA {const["ano"]}', 0, 1)
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(80, 6, 'Descrição', 1)
+    pdf.cell(50, 6, 'Valor', 1)
+    pdf.cell(0, 6, 'Observação', 1, 1)
+    
+    info_salario_familia = [
+        ('Limite de salário', formatar_moeda(const["salario_familia_limite"]), 'Para ter direito'),
+        ('Valor por dependente', formatar_moeda(const["valor_por_dependente"]), 'Por cada dependente'),
+        ('Dependentes considerados', 'Filhos até 14 anos', 'Ou inválidos qualquer idade')
+    ]
+    
+    for descricao, valor, obs in info_salario_familia:
+        pdf.cell(80, 6, descricao, 1)
+        pdf.cell(50, 6, valor, 1)
+        pdf.cell(0, 6, obs, 1, 1)
+    
+    pdf.ln(5)
+    
+    # Tabela INSS
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, f'TABELA INSS {const["ano"]}', 0, 1)
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(60, 6, 'Faixa Salarial', 1)
+    pdf.cell(30, 6, 'Alíquota', 1)
+    pdf.cell(0, 6, 'Valor Máx. na Faixa', 1, 1)
+    
+    # Recalcula faixas_inss_pdf aqui (ou utiliza a lógica da função individual)
+    # Replicando a lógica da função individual para garantir que os dados de faixas_inss_pdf existam.
+    faixas_inss_pdf = []
+    
+    for i, faixa in enumerate(const["tabela_inss"]):
+        aliquota_percentual = f'{faixa["aliquota"] * 100:.1f}%'.replace('.', ',')
+        
+        if i == 0:
+            limite_inferior = 0.0
+            limite_superior = faixa["limite"]
+            valor_max_faixa = limite_superior * faixa["aliquota"]
+        else:
+            limite_inferior = const["tabela_inss"][i-1]["limite"] + 0.01
+            limite_superior = faixa["limite"]
+            valor_max_faixa = (limite_superior - const["tabela_inss"][i-1]["limite"]) * faixa["aliquota"]
+            
+        faixas_inss_pdf.append((
+            f'{formatar_moeda(limite_inferior)} a {formatar_moeda(limite_superior)}', 
+            aliquota_percentual, 
+            formatar_moeda(valor_max_faixa)
+        ))
+        
+    for faixa, aliquota, valor in faixas_inss_pdf:
+        pdf.cell(60, 6, faixa, 1)
+        pdf.cell(30, 6, aliquota, 1)
+        pdf.cell(0, 6, valor, 1, 1)
+    
+    pdf.cell(0, 3, '', 0, 1)
+    pdf.cell(0, 6, f'Teto máximo do INSS: {formatar_moeda(const["teto_inss"])}', 0, 1)
+    pdf.ln(5)
+    
+    # Tabela IRRF
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 8, f'TABELA IRRF {const["ano"]}', 0, 1)
+    pdf.set_font('Arial', '', 8)
+    pdf.cell(60, 6, 'Base de Cálculo', 1)
+    pdf.cell(25, 6, 'Alíquota', 1)
+    pdf.cell(35, 6, 'Parcela a Deduzir', 1)
+    pdf.cell(0, 6, 'Faixa', 1, 1)
+    
+    # Recalcula faixas_irrf_pdf aqui (ou utiliza a lógica da função individual)
+    # Replicando a lógica da função individual para garantir que os dados de faixas_irrf_pdf existam.
+    faixas_irrf_pdf = []
+    
+    for i, faixa in enumerate(const["tabela_irrf"]):
+        aliquota_percentual = f'{faixa["aliquota"] * 100:.1f}%'.replace('.', ',')
+        deducao = formatar_moeda(faixa["deducao"])
+        
+        if i == 0:
+            base = f'Até {formatar_moeda(faixa["limite"])}'
+            faixa_num = 'Isento'
+        elif i == len(const["tabela_irrf"]) - 1:
+            base = f'Acima de {formatar_moeda(const["tabela_irrf"][i-1]["limite"])}'
+            faixa_num = f'{i}ª'
+        else:
+            base = f'{formatar_moeda(const["tabela_irrf"][i-1]["limite"] + 0.01)} a {formatar_moeda(faixa["limite"])}'
+            faixa_num = f'{i}ª'
+            
+        faixas_irrf_pdf.append((base, aliquota_percentual, deducao, faixa_num))
+        
+    for base, aliquota, deducao, faixa in faixas_irrf_pdf:
+        pdf.cell(60, 6, base, 1)
+        pdf.cell(25, 6, aliquota, 1)
+        pdf.cell(35, 6, deducao, 1)
+        pdf.cell(0, 6, faixa, 1, 1)
+    
+    pdf.cell(0, 3, '', 0, 1)
+    pdf.cell(0, 6, f'Dedução por dependente: {formatar_moeda(const["deducao_dependente_ir"])}', 0, 1)
+    pdf.ln(10)
+    
+    # Legislação e Metodologia (código omitido para brevidade)
+    # ... [código anterior para LEGISLAÇÃO E METODOLOGIA] ...
+    
+    # Legislação e Metodologia
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'LEGISLAÇÃO E METODOLOGIA', 0, 1)
+    
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, 'LEGISLAÇÃO DE REFERÊNCIA', 0, 1)
+    pdf.set_font('Arial', '', 9)
+    legislacao = [
+        '- Salário Família: Lei 8.213/1991',
+        '- INSS: Lei 8.212/1991 e Portaria MF/MPS (Vigente para o ano)',
+        '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB (Vigente para o ano)',
+        f'- Vigência: Exercício {const["ano"]}'
+    ]
+    for item in legislacao:
+        pdf.cell(0, 5, item, 0, 1)
+    
+    pdf.ln(3)
+    
+    pdf.set_font('Arial', 'B', 10)
+    pdf.cell(0, 6, 'METODOLOGIA DE CÁLCULO', 0, 1)
+    pdf.set_font('Arial', '', 9)
+    metodologia = [
+        f'1. SALÁRIO FAMÍLIA: Verifica se salário bruto é menor ou igual a {formatar_moeda(const["salario_familia_limite"])}',
+        f'2. CÁLCULO: Nº Dependentes × {formatar_moeda(const["valor_por_dependente"])} (se elegível)',
+        '3. INSS: Cálculo progressivo por faixas acumulativas (Aliquota Efetiva)',
+        f'4. BASE IRRF: Salário Bruto - Dependentes × {formatar_moeda(const["deducao_dependente_ir"])} - INSS - Outros Descontos',
+        '5. IRRF: (Base × Alíquota) - Parcela a Deduzir (tabela progressiva)',
+        '6. SALÁRIO LÍQUIDO: Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
+    ]
+    for item in metodologia:
+        pdf.multi_cell(0, 5, item)
+        pdf.ln(1)
+    
+    pdf.ln(10)
+    
+    # Rodapé
+    pdf.set_font('Arial', 'I', 8)
+    pdf.cell(0, 10, 'Este relatório foi gerado automaticamente pelo Sistema de Auditoria de Folha de Pagamento.', 0, 1, 'C')
+    pdf.cell(0, 5, 'Consulte um contador para validação oficial dos cálculos.', 0, 1, 'C')
+    pdf.cell(0, 5, f'Processado em: {data_hora_agora.strftime("%d/%m/%Y %H:%M:%S")}', 0, 1, 'C')
+
+    return pdf
+
+# Assumindo que a função principal do Streamlit continua abaixo.
+# Como o restante do código é necessário, eu vou incluir um trecho
+# simulando onde o cálculo seria chamado para garantir que o código seja runnable.
+
+# --- LÓGICA DE AUDITORIA SIMULADA ---
+def auditar_folha(df_bruto, ano_competencia):
+    """Aplica os cálculos no DataFrame, passando o ano de competência."""
+    
+    df_bruto['Salario_Familia'] = df_bruto.apply(
+        lambda row: calcular_salario_familia(row['Salario_Bruto'], row['Dependentes'], ano_competencia),
+        axis=1
+    )
+    df_bruto['INSS'] = df_bruto.apply(
+        lambda row: calcular_inss(row['Salario_Bruto'], ano_competencia),
+        axis=1
+    )
+    df_bruto['IRRF'] = df_bruto.apply(
+        lambda row: calcular_irrf(row['Salario_Bruto'], row['Dependentes'], row['INSS'], row['Outros_Descontos'], ano_competencia),
+        axis=1
+    )
+    
+    df_bruto['Total_Descontos'] = df_bruto['INSS'] + df_bruto['IRRF'] + df_bruto['Outros_Descontos']
+    df_bruto['Salario_Liquido'] = df_bruto['Salario_Bruto'] + df_bruto['Salario_Familia'] - df_bruto['Total_Descontos']
+    
+    return df_bruto.round(2)
+
+# --- SIMULAÇÃO DA SEÇÃO MANUAL E DE UPLOAD (ONDE O CÁLCULO É CHAMADO) ---
+
+# Cria um placeholder para a seção principal do Streamlit
+tab1, tab2 = st.tabs(["Cálculo Manual", "Upload de CSV"])
+
+with tab1:
+    st.header("Cálculo Manual Individual")
+    nome = st.text_input("Nome do Funcionário", value="João da Silva")
+    salario_bruto = st.number_input("Salário Bruto (R$)", min_value=0.0, value=3500.00, step=100.00)
+    dependentes = st.number_input("Número de Dependentes", min_value=0, value=2, step=1)
+    outros_descontos = st.number_input("Outros Descontos (R$)", min_value=0.0, value=0.0, step=10.00)
+    
+    if st.button("Calcular"):
+        # Chamada das funções com o ano_competencia
+        inss = calcular_inss(salario_bruto, ANO_CALCULO)
+        salario_familia = calcular_salario_familia(salario_bruto, dependentes, ANO_CALCULO)
+        irrf = calcular_irrf(salario_bruto, dependentes, inss, outros_descontos, ANO_CALCULO)
+        
+        total_descontos = inss + irrf + outros_descontos
+        salario_liquido = salario_bruto + salario_familia - total_descontos
+        
+        # Coletar dados para o PDF
+        dados_pdf = {
+            "nome": nome,
+            "salario_bruto": formatar_moeda(salario_bruto),
+            "dependentes": dependentes,
+            "outros_descontos": formatar_moeda(outros_descontos),
+            "salario_familia": formatar_moeda(salario_familia),
+            "inss": formatar_moeda(inss),
+            "irrf": formatar_moeda(irrf),
+            "total_descontos": formatar_moeda(total_descontos),
+            "salario_liquido": formatar_moeda(salario_liquido),
+            "data_analise": formatar_data(get_br_datetime_now()),
+            "competencia": formatar_data(data_competencia),
+            "data_e_hora_processamento": get_br_datetime_now().strftime("%d/%m/%Y %H:%M:%S"),
+            "elegivel_salario_familia": "Sim" if salario_familia > 0 else "Não",
+            # Base IRRF calculada manualmente para exibição
+            "base_irrf": formatar_moeda(salario_bruto - (dependentes * obter_constantes_e_tabelas(ANO_CALCULO)['deducao_dependente_ir']) - inss - outros_descontos)
+        }
+        
+        # Exibição do resultado
+        st.subheader(f"Resultados para {nome}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Salário Bruto", dados_pdf["salario_bruto"])
+        col2.metric("Salário Família", dados_pdf["salario_familia"])
+        col3.metric("Dependentes (Dedução IR)", f"R$ {obter_constantes_e_tabelas(ANO_CALCULO)['deducao_dependente_ir'] * dependentes:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        col4, col5, col6 = st.columns(3)
+        col4.metric("Desconto INSS", dados_pdf["inss"])
+        col5.metric("Desconto IRRF", dados_pdf["irrf"])
+        col6.metric("Total Descontos", dados_pdf["total_descontos"])
+        
+        st.markdown(f"## Salário Líquido: :green[{dados_pdf['salario_liquido']}]")
+        
+        # Geração de PDF Individual
+        pdf = gerar_pdf_individual(dados_pdf, ANO_CALCULO)
+        pdf_output = pdf.output(dest='S').encode('latin1')
+        st.markdown(
+            criar_link_download_pdf(pdf_output, f"Auditoria_Individual_{nome}_{ANO_CALCULO}.pdf"),
+            unsafe_allow_html=True
+        )
+
+with tab2:
+    st.header("Auditoria em Lote (Upload CSV)")
+    uploaded_file = st.file_uploader("Selecione o arquivo CSV da folha de pagamento", type="csv")
+    
+    if uploaded_file is not None:
+        st.session_state.uploaded_filename = uploaded_file.name
+        try:
+            df = pd.read_csv(uploaded_file)
+            
+            # Padronizar nomes das colunas (assumindo NOME, SALARIO_BRUTO, DEPENDENTES, OUTROS_DESCONTOS)
+            # Isto pode precisar de ajustes dependendo do CSV real
+            df.columns = [col.strip().replace(' ', '_').replace('/', '_') for col in df.columns]
+            
+            # Renomeia colunas essenciais
+            colunas_map = {
+                'NOME': 'Nome',
+                'SALARIO_BRUTO': 'Salario_Bruto',
+                'DEPENDENTES': 'Dependentes',
+                'OUTROS_DESCONTOS': 'Outros_Descontos'
+            }
+            
+            for key, val in colunas_map.items():
+                if key not in df.columns and key.lower() in [c.lower() for c in df.columns]:
+                    df.rename(columns={c: val for c in df.columns if c.lower() == key.lower()}, inplace=True)
+            
+            # Converte tipos
+            df['Salario_Bruto'] = pd.to_numeric(df['Salario_Bruto'], errors='coerce').fillna(0)
+            df['Dependentes'] = pd.to_numeric(df['Dependentes'], errors='coerce').fillna(0).astype(int)
+            df['Outros_Descontos'] = pd.to_numeric(df['Outros_Descontos'], errors='coerce').fillna(0)
+            
+            st.success(f"Arquivo '{st.session_state.uploaded_filename}' carregado com sucesso.")
+            
+            # Aplica o cálculo com o ano de competência
+            df_resultado_final = auditar_folha(df, ANO_CALCULO)
+            st.session_state.df_resultado = df_resultado_final
+            
+            st.subheader("Resultados da Auditoria (Tabela Completa)")
+            
+            # Exibe a tabela formatada
+            df_display = df_resultado_final.copy()
+            for col in ['Salario_Bruto', 'Salario_Familia', 'INSS', 'IRRF', 'Outros_Descontos', 'Total_Descontos', 'Salario_Liquido']:
+                df_display[col] = df_display[col].apply(formatar_moeda)
+            
+            st.dataframe(df_display, use_container_width=True)
+            
+            # Cálculo de totais
+            total_salario_familia = df_resultado_final['Salario_Familia'].sum()
+            total_inss = df_resultado_final['INSS'].sum()
+            total_irrf = df_resultado_final['IRRF'].sum()
+            folha_liquida_total = df_resultado_final['Salario_Liquido'].sum()
+            
+            st.subheader("Resumo em Lote")
+            col_a, col_b, col_c, col_d = st.columns(4)
+            col_a.metric("Total Salário Família", formatar_moeda(total_salario_familia))
+            col_b.metric("Total INSS", formatar_moeda(total_inss))
+            col_c.metric("Total IRRF", formatar_moeda(total_irrf))
+            col_d.metric("Folha Líquida Total", formatar_moeda(folha_liquida_total))
+            
+            # Geração de PDF em Lote
+            pdf_lote = gerar_pdf_auditoria_completa(df_resultado_final, st.session_state.uploaded_filename, total_salario_familia, total_inss, total_irrf, folha_liquida_total, ANO_CALCULO)
+            pdf_output_lote = pdf_lote.output(dest='S').encode('latin1')
+            st.markdown(
+                criar_link_download_pdf(pdf_output_lote, f"Auditoria_Lote_{ANO_CALCULO}.pdf"),
+                unsafe_allow_html=True
+            )
+            
+            # Opção de download do CSV auditado
+            csv_output = df_resultado_final.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+            st.download_button(
+                label="⬇️ Baixar CSV Auditado",
+                data=csv_output,
+                file_name=f'folha_auditada_{ANO_CALCULO}.csv',
+                mime='text/csv'
+            )
+            
+        except Exception as e:
+            st.error(f"Ocorreu um erro ao processar o arquivo. Verifique se o formato das colunas está correto (Salário Bruto, Dependentes, Outros Descontos). Erro: {e}")
+            
+# --- FIM DA LÓGICA DE AUDITORIA SIMULADA ---
