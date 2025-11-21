@@ -29,11 +29,24 @@ if 'observacao_lote' not in st.session_state:
 st.title("💰 Auditoria de Folha de Pagamento - Ana Clara")
 st.markdown("### Cálculo de Salário Família, INSS e IRRF")
 
-# --- TABELAS LEGAIS 2025 (JÁ EXISTENTES) ---
+# --- TABELAS LEGAIS ---
+
+# Datas de Referência para IRRF
+DATA_INICIO_2024_IRRF = date(2024, 2, 1) # Início do período intermediário 
+DATA_INICIO_2025_IRRF = date(2025, 5, 1) # Início da MP 1.294 [cite: 14, 15, 16]
+
+# --- Salário Família & Dedução IR ---
+DESCONTO_DEPENDENTE_IR = 189.59 # Comum em todas as tabelas [cite: 16, 17, 18]
+
+# Salário Família 2025 (Padrão 2025)
 SF_LIMITE_2025 = 1906.04
 SF_VALOR_2025 = 65.00
-DESCONTO_DEPENDENTE_IR = 189.59
 
+# Salário Família 2024 (Regra Solicitada)
+SF_LIMITE_2024 = 1819.26
+SF_VALOR_2024 = 62.04
+
+# --- Tabela INSS 2025 ---
 TABELA_INSS_2025 = [
     {"limite": 1518.00, "aliquota": 0.075},
     {"limite": 2793.88, "aliquota": 0.09},
@@ -41,20 +54,7 @@ TABELA_INSS_2025 = [
     {"limite": 8157.41, "aliquota": 0.14}
 ]
 
-TABELA_IRRF_2025 = [
-    {"limite": 2428.80, "aliquota": 0.0, "deducao": 0.0},
-    {"limite": 2826.65, "aliquota": 0.075, "deducao": 182.16},
-    {"limite": 3751.05, "aliquota": 0.15, "deducao": 394.16},
-    {"limite": 4664.68, "aliquota": 0.225, "deducao": 675.49},
-    {"limite": float('inf'), "aliquota": 0.275, "deducao": 916.90}
-]
-
-# --- NOVAS TABELAS LEGAIS 2024 (DO ANEXO E SOLICITAÇÃO) ---
-# Salário Família 2024 (Regra solicitada)
-SF_LIMITE_2024 = 1819.26
-SF_VALOR_2024 = 62.04
-
-# Tabela INSS 2024 (Do anexo)
+# --- Tabela INSS 2024 ---
 TABELA_INSS_2024 = [
     {"limite": 1412.00, "aliquota": 0.075},
     {"limite": 2666.68, "aliquota": 0.09},
@@ -62,16 +62,33 @@ TABELA_INSS_2024 = [
     {"limite": 7786.02, "aliquota": 0.14}
 ]
 
-# Tabela IRRF 2024 (Do anexo)
-# OBS: O limite de isenção no anexo está 2.112,00. O limite de 2.428,80 (2025) será considerado para 2025.
-# O DESCONTO_DEPENDENTE_IR de R$ 189,59 é o mesmo nos dois anexos/tabelas e será mantido.
-TABELA_IRRF_2024 = [
+# --- Tabela IRRF (01/05/2023 a 31/01/2024)  ---
+TABELA_IRRF_2023_JAN2024 = [
     {"limite": 2112.00, "aliquota": 0.0, "deducao": 0.00},
     {"limite": 2826.65, "aliquota": 0.075, "deducao": 158.40},
     {"limite": 3751.05, "aliquota": 0.15, "deducao": 370.40},
     {"limite": 4664.68, "aliquota": 0.225, "deducao": 651.73},
     {"limite": float('inf'), "aliquota": 0.275, "deducao": 884.96}
 ]
+
+# --- Tabela IRRF (01/02/2024 a 30/04/2025)  ---
+TABELA_IRRF_FEV2024_ABR2025 = [
+    {"limite": 2259.20, "aliquota": 0.0, "deducao": 0.00},
+    {"limite": 2826.65, "aliquota": 0.075, "deducao": 169.44},
+    {"limite": 3751.05, "aliquota": 0.15, "deducao": 381.44},
+    {"limite": 4664.68, "aliquota": 0.225, "deducao": 662.77},
+    {"limite": float('inf'), "aliquota": 0.275, "deducao": 896.00}
+]
+
+# --- Tabela IRRF (01/05/2025 em diante)  ---
+TABELA_IRRF_MAI2025_DEZ2025 = [
+    {"limite": 2428.80, "aliquota": 0.0, "deducao": 0.0},
+    {"limite": 2826.65, "aliquota": 0.075, "deducao": 182.16},
+    {"limite": 3751.05, "aliquota": 0.15, "deducao": 394.16},
+    {"limite": 4664.68, "aliquota": 0.225, "deducao": 675.49},
+    {"limite": float('inf'), "aliquota": 0.275, "deducao": 908.73} # Valor atualizado da MP
+]
+
 
 # --- FUNÇÕES DE UTILIDADE (SEM ALTERAÇÃO) ---
 
@@ -96,18 +113,41 @@ def get_br_datetime_now():
 # --- FUNÇÕES DE CÁLCULO MODIFICADAS ---
 
 def selecionar_tabelas(competencia: date):
-    """Seleciona as tabelas de INSS, IRRF e parâmetros de Salário Família com base na competência."""
+    """
+    Seleciona as tabelas de INSS, IRRF e parâmetros de Salário Família
+    com base na competência, utilizando a nova lógica de datas para o IRRF.
+    """
+    
+    # Lógica INSS e Salário Família (Baseada no ano)
     if competencia.year == 2024:
-        return TABELA_INSS_2024, TABELA_IRRF_2024, SF_LIMITE_2024, SF_VALOR_2024, "2024"
-    # Padrão para 2025 ou anos futuros
-    return TABELA_INSS_2025, TABELA_IRRF_2025, SF_LIMITE_2025, SF_VALOR_2025, "2025"
+        tabela_inss = TABELA_INSS_2024
+        limite_sf = SF_LIMITE_2024
+        valor_sf = SF_VALOR_2024
+        ano_base = "2024"
+    else: # 2025 ou anos seguintes
+        tabela_inss = TABELA_INSS_2025
+        limite_sf = SF_LIMITE_2025
+        valor_sf = SF_VALOR_2025
+        ano_base = "2025"
+
+    # Lógica IRRF (Baseada na data específica)
+    if competencia >= DATA_INICIO_2025_IRRF:
+        tabela_irrf = TABELA_IRRF_MAI2025_DEZ2025
+        irrf_periodo = "01/05/2025 em diante (MP 1.294)"
+    elif competencia >= DATA_INICIO_2024_IRRF:
+        tabela_irrf = TABELA_IRRF_FEV2024_ABR2025
+        irrf_periodo = "01/02/2024 a 30/04/2025"
+    else: # Antes de 01/02/2024 (usa a tabela anterior)
+        tabela_irrf = TABELA_IRRF_2023_JAN2024
+        irrf_periodo = "01/05/2023 a 31/01/2024"
+        
+    return tabela_inss, tabela_irrf, limite_sf, valor_sf, ano_base, irrf_periodo
 
 def calcular_inss(salario_bruto, tabela_inss):
     """Calcula desconto do INSS com base na tabela progressiva fornecida."""
     if salario_bruto <= 0:
         return 0.0
     
-    # O limite máximo é o limite da última faixa
     teto_inss = tabela_inss[-1]["limite"]
     salario_calculo = min(salario_bruto, teto_inss)
     inss = 0.0
@@ -123,7 +163,6 @@ def calcular_inss(salario_bruto, tabela_inss):
             salario_restante -= valor_faixa
         else:
             faixa_anterior = tabela_inss[i-1]
-            # O limite da faixa é a diferença entre o limite atual e o limite anterior
             limite_faixa = faixa["limite"] - faixa_anterior["limite"]
             
             valor_faixa = min(salario_restante, limite_faixa)
@@ -152,7 +191,7 @@ def calcular_irrf(salario_bruto, dependentes, inss, outros_descontos, tabela_irr
             irrf = (base_calculo * faixa["aliquota"]) - faixa["deducao"]
             return max(round(irrf, 2), 0.0)
     
-    return 0.0 # Caso extremo (não deve ocorrer com float('inf'))
+    return 0.0 
 
 # --- FUNÇÕES DE GERAÇÃO DE PDF MODIFICADAS ---
 
@@ -185,7 +224,8 @@ def gerar_pdf_individual(dados, obs):
     pdf.set_font('Arial', '', 10)
     pdf.cell(0, 6, f'Data da Análise: {dados["data_analise"]}', 0, 1)
     pdf.cell(0, 6, f'Competência: {dados["competencia"]}', 0, 1)
-    pdf.cell(0, 6, f'Tabelas Aplicadas: {dados["tabelas_aplicadas"]}', 0, 1)
+    pdf.cell(0, 6, f'Tabelas INSS Aplicadas: {dados["ano_base"]}', 0, 1)
+    pdf.cell(0, 6, f'Tabelas IRRF Aplicadas: {dados["irrf_periodo"]}', 0, 1)
     pdf.ln(5)
     
     # Dados do Funcionário
@@ -246,28 +286,24 @@ def gerar_pdf_individual(dados, obs):
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(0, 10, 'OBSERVAÇÕES DO ANALISTA', 0, 1)
         pdf.set_font('Arial', '', 10)
-        # Multi_cell para quebra de linha em textos longos
         pdf.multi_cell(0, 6, obs)
         pdf.ln(5)
     
     # --- INCLUSÃO DAS TABELAS NO PDF INDIVIDUAL ---
-    # (Manter a lógica original de exibição de tabelas para não quebrar a estrutura)
+    
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'TABELAS DE REFERÊNCIA', 0, 1)
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 6, f'Referência: Tabelas de {dados["tabelas_aplicadas"]}', 0, 1)
+    pdf.cell(0, 6, f'Referência INSS: Tabelas de {dados["ano_base"]}', 0, 1)
+    pdf.cell(0, 6, f'Referência IRRF: Tabela com vigência {dados["irrf_periodo"]}', 0, 1)
     pdf.ln(5)
 
-    # Lógica para mostrar a tabela correta no PDF (simplificada aqui para não duplicar muito código, mas mantendo a informação da versão)
-    
-    # Tabela Salário Família
-    if dados["tabelas_aplicadas"] == "2025":
-        SF_LIMITE, SF_VALOR = SF_LIMITE_2025, SF_VALOR_2025
-    else:
-        SF_LIMITE, SF_VALOR = SF_LIMITE_2024, SF_VALOR_2024
+    # Obter tabelas completas
+    tabela_inss_referencia, tabela_irrf_referencia, SF_LIMITE, SF_VALOR, _, _ = selecionar_tabelas(dados["competencia_obj"])
         
+    # Tabela Salário Família
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'SALÁRIO FAMÍLIA {dados["tabelas_aplicadas"]}', 0, 1)
+    pdf.cell(0, 8, f'SALÁRIO FAMÍLIA {dados["ano_base"]}', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(80, 6, 'Descrição', 1)
     pdf.cell(50, 6, 'Valor', 1)
@@ -279,18 +315,16 @@ def gerar_pdf_individual(dados, obs):
         ('Dependentes considerados', 'Filhos até 14 anos', 'Ou inválidos qualquer idade')
     ]
     
-    for descricao, valor, obs in info_salario_familia:
+    for descricao, valor, obs_sf in info_salario_familia:
         pdf.cell(80, 6, descricao, 1)
         pdf.cell(50, 6, valor, 1)
-        pdf.cell(0, 6, obs, 1, 1)
+        pdf.cell(0, 6, obs_sf, 1, 1)
     
     pdf.ln(5)
     
     # Tabela INSS (Exibindo a tabela aplicada)
-    tabela_inss_referencia = TABELA_INSS_2025 if dados["tabelas_aplicadas"] == "2025" else TABELA_INSS_2024
-    
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'TABELA INSS {dados["tabelas_aplicadas"]}', 0, 1)
+    pdf.cell(0, 8, f'TABELA INSS {dados["ano_base"]}', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(60, 6, 'Faixa Salarial', 1)
     pdf.cell(30, 6, 'Alíquota', 1)
@@ -322,10 +356,8 @@ def gerar_pdf_individual(dados, obs):
     pdf.ln(5)
     
     # Tabela IRRF (Exibindo a tabela aplicada)
-    tabela_irrf_referencia = TABELA_IRRF_2025 if dados["tabelas_aplicadas"] == "2025" else TABELA_IRRF_2024
-    
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'TABELA IRRF {dados["tabelas_aplicadas"]}', 0, 1)
+    pdf.cell(0, 8, f'TABELA IRRF ({dados["irrf_periodo"]})', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(60, 6, 'Base de Cálculo', 1)
     pdf.cell(25, 6, 'Alíquota', 1)
@@ -347,7 +379,7 @@ def gerar_pdf_individual(dados, obs):
             faixa_num = 'Isento'
         else:
             base_desc = f'{formatar_moeda(limite_anterior + 0.01)} a {formatar_moeda(limite)}'
-            faixa_num = f'{i}ª'
+            faixa_num = f'{i+1}ª'
             
         faixas_irrf.append((base_desc, aliquota_percentual, deducao, faixa_num))
         limite_anterior = limite
@@ -371,9 +403,9 @@ def gerar_pdf_individual(dados, obs):
     pdf.set_font('Arial', '', 9)
     legislacao = [
         '- Salário Família: Lei 8.213/1991',
-        '- INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024 (2025) / Portaria INTERMINISTERIAL MPS/MF Nº 2, DE 11 DE JANEIRO DE 2024 (2024)',
-        '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024 (2025) / Lei nº 14.663, de 28 de agosto de 2023 (2024)',
-        f'- Vigência Aplicada: Exercício {dados["tabelas_aplicadas"]}'
+        f'- INSS: Lei 8.212/1991 e Portaria de Referência de {dados["ano_base"]}',
+        f'- IRRF: Lei 7.713/1988 e Instrução Normativa/MP de Referência do período ({dados["irrf_periodo"]})',
+        f'- Vigência Aplicada: INSS ({dados["ano_base"]}), IRRF ({dados["irrf_periodo"]})'
     ]
     for item in legislacao:
         pdf.multi_cell(0, 5, item)
@@ -387,9 +419,9 @@ def gerar_pdf_individual(dados, obs):
     metodologia = [
         f'1. SALÁRIO FAMÍLIA: Aplicado se salário bruto <= {formatar_moeda(SF_LIMITE)}.',
         f'2. CÁLCULO: Nº Dependentes × {formatar_moeda(SF_VALOR)} (se elegível)',
-        '3. INSS: Cálculo progressivo por faixas acumulativas (Alíquota Efetiva)',
+        '3. INSS: Cálculo progressivo por faixas acumulativas (Alíquota Efetiva) - Tabela anual.',
         f'4. BASE IRRF: Salário Bruto - Dependentes × {formatar_moeda(DESCONTO_DEPENDENTE_IR)} - INSS - Outros Descontos',
-        '5. IRRF: (Base × Alíquota) - Parcela a Deduzir (tabela progressiva)',
+        '5. IRRF: (Base × Alíquota) - Parcela a Deduzir (tabela progressiva) - Tabela com vigência específica.',
         '6. SALÁRIO LÍQUIDO: Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
     ]
     for item in metodologia:
@@ -407,7 +439,7 @@ def gerar_pdf_individual(dados, obs):
     return pdf
 
 def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_familia, total_inss, total_irrf, folha_liquida_total, obs_lote):
-    """Gera PDF para auditoria completa (MODIFICADO para incluir OBS)"""
+    """Gera PDF para auditoria completa (MODIFICADO para incluir OBS e datas de IRRF)"""
     pdf = FPDF()
     pdf.add_page()
     
@@ -428,10 +460,12 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.cell(0, 6, f'Total de Funcionários Auditados: {len(df_resultado)}', 0, 1)
     pdf.cell(0, 6, f'Arquivo Processado: {uploaded_filename}', 0, 1)
     
-    # Tabela Aplicada (Assume-se que a competência é a mesma para todo o lote, usando a primeira linha)
+    # Tabela Aplicada (Assume-se que a competência é a mesma para todo o lote)
     primeira_competencia = df_resultado.iloc[0]['Competencia']
-    _, _, _, _, ano_aplicado = selecionar_tabelas(primeira_competencia)
-    pdf.cell(0, 6, f'Tabelas Aplicadas: {ano_aplicado}', 0, 1)
+    tabela_inss_ref, tabela_irrf_ref, SF_LIMITE, SF_VALOR, ano_base, irrf_periodo = selecionar_tabelas(primeira_competencia)
+
+    pdf.cell(0, 6, f'Tabelas INSS Aplicadas: {ano_base}', 0, 1)
+    pdf.cell(0, 6, f'Tabelas IRRF Aplicadas: {irrf_periodo}', 0, 1)
     
     # Estatísticas de aplicação
     funcionarios_com_salario_familia = len(df_resultado[df_resultado['Salario_Familia'] > 0])
@@ -495,9 +529,9 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(0, 10, f'RESULTADOS DETALHADOS (Primeiros {min(15, len(df_resultado))} de {len(df_resultado)})', 0, 1)
         
-        pdf.set_font('Arial', 'B', 8)
+        pdf.set_font('Arial', 'B', 7)
         colunas = ['Nome', 'Salário', 'Dep', 'Sal Fam', 'INSS', 'IRRF', 'Líquido']
-        larguras = [40, 25, 15, 25, 25, 25, 30]
+        larguras = [35, 23, 12, 23, 23, 23, 28]
         
         for i, coluna in enumerate(colunas):
             pdf.cell(larguras[i], 8, coluna, 1, 0, 'C')
@@ -505,7 +539,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         
         pdf.set_font('Arial', '', 7)
         for _, row in df_resultado.head(15).iterrows():
-            nome = str(row['Nome'])[:20] + '...' if len(str(row['Nome'])) > 20 else str(row['Nome'])
+            nome = str(row['Nome'])[:18] + '...' if len(str(row['Nome'])) > 18 else str(row['Nome'])
             pdf.cell(larguras[0], 6, nome, 1)
             pdf.cell(larguras[1], 6, formatar_moeda(row['Salario_Bruto']), 1, 0, 'R')
             pdf.cell(larguras[2], 6, str(row['Dependentes']), 1, 0, 'C')
@@ -522,26 +556,18 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.ln(10)
 
     # --- INCLUSÃO DAS TABELAS NO PDF EM LOTE ---
-    # (Mantendo a lógica original, mas referenciando o ano correto)
     
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'TABELAS DE REFERÊNCIA', 0, 1)
     pdf.set_font('Arial', '', 10)
-    pdf.cell(0, 6, f'Referência: Tabelas de {ano_aplicado}', 0, 1)
+    pdf.cell(0, 6, f'Referência INSS: Tabelas de {ano_base}', 0, 1)
+    pdf.cell(0, 6, f'Referência IRRF: Tabela com vigência {irrf_periodo}', 0, 1)
     pdf.ln(5)
 
-    if ano_aplicado == "2025":
-        SF_LIMITE, SF_VALOR = SF_LIMITE_2025, SF_VALOR_2025
-        TAB_INSS_REF = TABELA_INSS_2025
-        TAB_IRRF_REF = TABELA_IRRF_2025
-    else:
-        SF_LIMITE, SF_VALOR = SF_LIMITE_2024, SF_VALOR_2024
-        TAB_INSS_REF = TABELA_INSS_2024
-        TAB_IRRF_REF = TABELA_IRRF_2024
     
     # Tabela Salário Família
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'SALÁRIO FAMÍLIA {ano_aplicado}', 0, 1)
+    pdf.cell(0, 8, f'SALÁRIO FAMÍLIA {ano_base}', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(80, 6, 'Descrição', 1)
     pdf.cell(50, 6, 'Valor', 1)
@@ -553,16 +579,16 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         ('Dependentes considerados', 'Filhos até 14 anos', 'Ou inválidos qualquer idade')
     ]
     
-    for descricao, valor, obs in info_salario_familia:
+    for descricao, valor, obs_sf in info_salario_familia:
         pdf.cell(80, 6, descricao, 1)
         pdf.cell(50, 6, valor, 1)
-        pdf.cell(0, 6, obs, 1, 1)
+        pdf.cell(0, 6, obs_sf, 1, 1)
     
     pdf.ln(5)
     
     # Tabela INSS
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'TABELA INSS {ano_aplicado}', 0, 1)
+    pdf.cell(0, 8, f'TABELA INSS {ano_base}', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(60, 6, 'Faixa Salarial', 1)
     pdf.cell(30, 6, 'Alíquota', 1)
@@ -570,7 +596,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     
     faixas_inss = []
     limite_anterior = 0.0
-    for i, faixa in enumerate(TAB_INSS_REF):
+    for i, faixa in enumerate(tabela_inss_ref):
         limite = faixa["limite"]
         aliquota_percentual = f"{faixa['aliquota'] * 100:.1f}%"
         
@@ -590,12 +616,12 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         pdf.cell(0, 6, valor, 1, 1)
     
     pdf.cell(0, 3, '', 0, 1)
-    pdf.cell(0, 6, f'Teto máximo do INSS: {formatar_moeda(TAB_INSS_REF[-1]["limite"])}', 0, 1)
+    pdf.cell(0, 6, f'Teto máximo do INSS: {formatar_moeda(tabela_inss_ref[-1]["limite"])}', 0, 1)
     pdf.ln(5)
     
     # Tabela IRRF
     pdf.set_font('Arial', 'B', 10)
-    pdf.cell(0, 8, f'TABELA IRRF {ano_aplicado}', 0, 1)
+    pdf.cell(0, 8, f'TABELA IRRF ({irrf_periodo})', 0, 1)
     pdf.set_font('Arial', '', 8)
     pdf.cell(60, 6, 'Base de Cálculo', 1)
     pdf.cell(25, 6, 'Alíquota', 1)
@@ -604,7 +630,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     
     faixas_irrf = []
     limite_anterior = 0.0
-    for i, faixa in enumerate(TAB_IRRF_REF):
+    for i, faixa in enumerate(tabela_irrf_ref):
         limite = faixa["limite"]
         aliquota_percentual = f"{faixa['aliquota'] * 100:.1f}%" if faixa['aliquota'] > 0 else '0%'
         deducao = formatar_moeda(faixa["deducao"])
@@ -617,7 +643,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
             faixa_num = 'Isento'
         else:
             base_desc = f'{formatar_moeda(limite_anterior + 0.01)} a {formatar_moeda(limite)}'
-            faixa_num = f'{i}ª'
+            faixa_num = f'{i+1}ª'
             
         faixas_irrf.append((base_desc, aliquota_percentual, deducao, faixa_num))
         limite_anterior = limite
@@ -641,9 +667,9 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
     pdf.set_font('Arial', '', 9)
     legislacao = [
         '- Salário Família: Lei 8.213/1991',
-        '- INSS: Lei 8.212/1991 e Portaria MF/MPS 01/2024 (2025) / Portaria INTERMINISTERIAL MPS/MF Nº 2, DE 11 DE JANEIRO DE 2024 (2024)',
-        '- IRRF: Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024 (2025) / Lei nº 14.663, de 28 de agosto de 2023 (2024)',
-        f'- Vigência Aplicada: Exercício {ano_aplicado}'
+        f'- INSS: Lei 8.212/1991 e Portaria de Referência de {ano_base}',
+        f'- IRRF: Lei 7.713/1988 e Instrução Normativa/MP de Referência do período ({irrf_periodo})',
+        f'- Vigência Aplicada: INSS ({ano_base}), IRRF ({irrf_periodo})'
     ]
     for item in legislacao:
         pdf.multi_cell(0, 5, item)
@@ -658,7 +684,7 @@ def gerar_pdf_auditoria_completa(df_resultado, uploaded_filename, total_salario_
         f'1. SALÁRIO FAMÍLIA: Pago para salários menores ou iguais a {formatar_moeda(SF_LIMITE)}, no valor de {formatar_moeda(SF_VALOR)} por dependente',
         '2. INSS: Cálculo progressivo por faixas conforme tabela do ano aplicável (Alíquota Efetiva)',
         f'3. IRRF: Base de cálculo = Salário Bruto - Dependentes × {formatar_moeda(DESCONTO_DEPENDENTE_IR)} - INSS - Outros Descontos',
-        '4. Aplicadas alíquotas progressivas conforme tabela IRRF do ano aplicável',
+        '4. Aplicadas alíquotas progressivas conforme tabela IRRF do período de vigência',
         '5. Salário Líquido = Salário Bruto + Salário Família - INSS - IRRF - Outros Descontos'
     ]
     for item in metodologia:
@@ -716,7 +742,7 @@ with tab1:
     if st.button("Calcular", type="primary"):
         
         # 1. SELECIONA AS TABELAS CORRETAS
-        tabela_inss_aplicada, tabela_irrf_aplicada, limite_sf_aplicado, valor_sf_aplicado, ano_aplicado = selecionar_tabelas(competencia)
+        tabela_inss_aplicada, tabela_irrf_aplicada, limite_sf_aplicado, valor_sf_aplicado, ano_base, irrf_periodo = selecionar_tabelas(competencia)
         
         # 2. CALCULA COM AS TABELAS SELECIONADAS
         inss_valor = calcular_inss(salario, tabela_inss_aplicada)
@@ -728,7 +754,7 @@ with tab1:
         salario_liquido = salario - total_descontos + total_acrescimos
         base_irrf = salario - (dependentes * DESCONTO_DEPENDENTE_IR) - inss_valor - outros_descontos
         
-        st.success(f"Cálculos realizados com sucesso! Tabelas de {ano_aplicado} aplicadas.")
+        st.success(f"Cálculos realizados com sucesso! Tabelas INSS: {ano_base}, IRRF: {irrf_periodo} aplicadas.")
         
         # ... [Métricas e Detalhamento na interface] ...
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -742,7 +768,7 @@ with tab1:
             st.metric("Salário Líquido", formatar_moeda(salario_liquido))
         
         st.subheader("📋 Detalhamento Completo")
-        st.write(f"Tabelas de referência: **{ano_aplicado}**")
+        st.write(f"Tabelas de referência: **INSS {ano_base}, IRRF {irrf_periodo}**")
         detalhes = pd.DataFrame({
             'Descrição': ['Salário Bruto', 'Salário Família', 'INSS', 'IRRF', 'Outros Descontos','Total Descontos','Salário Líquido'],
             'Valor': [formatar_moeda(salario), formatar_moeda(sal_familia), formatar_moeda(inss_valor), formatar_moeda(irrf_valor), formatar_moeda(outros_descontos), formatar_moeda(total_descontos), formatar_moeda(salario_liquido)]
@@ -757,7 +783,9 @@ with tab1:
         dados_pdf = {
             "data_analise": formatar_data(data_hora_agora),
             "competencia": formatar_data(competencia),
-            "tabelas_aplicadas": ano_aplicado, # Novo
+            "competencia_obj": competencia,
+            "ano_base": ano_base,
+            "irrf_periodo": irrf_periodo,
             "nome": nome,
             "salario_bruto": formatar_moeda(salario),
             "dependentes": dependentes,
@@ -941,7 +969,7 @@ with tab2:
                 with st.spinner("Processando auditoria..."):
                     
                     # Seleciona as tabelas APENAS UMA VEZ para o lote
-                    tabela_inss_aplicada, tabela_irrf_aplicada, limite_sf_aplicado, valor_sf_aplicado, ano_aplicado = selecionar_tabelas(competencia_lote)
+                    tabela_inss_aplicada, tabela_irrf_aplicada, limite_sf_aplicado, valor_sf_aplicado, ano_base, irrf_periodo = selecionar_tabelas(competencia_lote)
 
                     resultados = []
                     for _, row in df.iterrows():
@@ -960,7 +988,7 @@ with tab2:
                     df_resultado = pd.DataFrame(resultados)
                     st.session_state.df_resultado = df_resultado
                     st.session_state.uploaded_filename = uploaded_filename
-                    st.success(f"🎉 Auditoria concluída! Tabelas de {ano_aplicado} aplicadas.")
+                    st.success(f"🎉 Auditoria concluída! Tabelas INSS: {ano_base}, IRRF: {irrf_periodo} aplicadas.")
                     st.rerun()
             
         except Exception as e:
@@ -1027,7 +1055,7 @@ with tab2:
                     except Exception as e:
                         st.error(f"❌ Erro ao gerar PDF: {e}")
 
-# --- ABA 3 E RODAPÉ (AJUSTADOS PARA INCLUIR 2024) ---
+# --- ABA 3 E RODAPÉ (AJUSTADOS PARA INCLUIR NOVAS TABELAS) ---
 
 with tab3:
     st.header("Informações Técnicas")
@@ -1036,8 +1064,11 @@ with tab3:
     st.subheader("📅 Regra de Vigência (Competência)")
     st.info("""
     O sistema utiliza as seguintes tabelas com base na **Competência Analisada**:
-    - **Competência em 2024:** Aplica as tabelas de INSS, IRRF e Salário Família de 2024.
-    - **Competência em 2025 ou Anos Seguintes:** Aplica as tabelas de INSS, IRRF e Salário Família de 2025.
+    - **INSS/Salário Família:** Selecionado pelo ano (2024 ou 2025).
+    - **IRRF:** Selecionado pela data específica da competência.
+        - **Até 31/01/2024:** Tabela de 01/05/2023.
+        - **01/02/2024 a 30/04/2025:** Tabela Intermediária.
+        - **01/05/2025 em diante:** Tabela com MP mais recente.
     """)
     
     col_info1, col_info2 = st.columns(2)
@@ -1053,12 +1084,12 @@ with tab3:
         - **Limite Salário:** {formatar_moeda(SF_LIMITE_2024)}
         - **Valor por Dependente:** {formatar_moeda(SF_VALOR_2024)}
         
-        - **Dedução IR por Dependente (Ambos os anos):** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
+        - **Dedução IR por Dependente (Todos os anos):** {formatar_moeda(DESCONTO_DEPENDENTE_IR)}
         - **Requisito:** Salário **<=** ao limite (para Salário Família)
         """)
     
     with col_info2:
-        st.subheader("📋 INSS 2025 (Alíquota Efetiva)")
+        st.subheader("📋 Tabela INSS 2025 (Alíquota Efetiva)")
         tabela_inss_df_2025 = pd.DataFrame([
             {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1518.00), "Alíquota": "7,5%"},
             {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1518.01) + " a " + formatar_moeda(2793.88), "Alíquota": "9,0%"},
@@ -1068,7 +1099,7 @@ with tab3:
         st.dataframe(tabela_inss_df_2025, use_container_width=True, hide_index=True)
         st.caption(f"**Teto máximo do INSS 2025:** {formatar_moeda(8157.41)}")
         
-        st.subheader("📋 INSS 2024 (Alíquota Efetiva)")
+        st.subheader("📋 Tabela INSS 2024 (Alíquota Efetiva)")
         tabela_inss_df_2024 = pd.DataFrame([
             {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1412.00), "Alíquota": "7,5%"},
             {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1412.01) + " a " + formatar_moeda(2666.68), "Alíquota": "9,0%"},
@@ -1078,33 +1109,50 @@ with tab3:
         st.dataframe(tabela_inss_df_2024, use_container_width=True, hide_index=True)
         st.caption(f"**Teto máximo do INSS 2024:** {formatar_moeda(7786.02)}")
 
-    st.subheader("📈 Tabela IRRF 2025")
-    tabela_irrf_df_2025 = pd.DataFrame([
+    st.subheader("📈 Tabela IRRF - Vigências Específicas")
+    
+    st.markdown("#### **Vigência: 01/05/2025 em diante** (MP mais recente) ")
+    tabela_irrf_df_mai2025 = pd.DataFrame([
         {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2428.80), "Alíquota": "0%", "Parcela a Deduzir": formatar_moeda(0.00)},
         {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2428.81) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Parcela a Deduzir": formatar_moeda(182.16)},
         {"Faixa": "3ª", "Base de Cálculo": formatar_moeda(2826.66) + " a " + formatar_moeda(3751.05), "Alíquota": "15%", "Parcela a Deduzir": formatar_moeda(394.16)},
         {"Faixa": "4ª", "Base de Cálculo": formatar_moeda(3751.06) + " a " + formatar_moeda(4664.68), "Alíquota": "22,5%", "Parcela a Deduzir": formatar_moeda(675.49)},
-        {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Parcela a Deduzir": formatar_moeda(916.90)}
+        {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Parcela a Deduzir": formatar_moeda(908.73)}
     ])
-    st.dataframe(tabela_irrf_df_2025, use_container_width=True, hide_index=True)
+    st.dataframe(tabela_irrf_df_mai2025, use_container_width=True, hide_index=True)
 
-    st.subheader("📈 Tabela IRRF 2024")
-    tabela_irrf_df_2024 = pd.DataFrame([
+    st.markdown("#### **Vigência: 01/02/2024 a 30/04/2025** ")
+    tabela_irrf_df_fev2024 = pd.DataFrame([
+        {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2259.20), "Alíquota": "0%", "Parcela a Deduzir": formatar_moeda(0.00)},
+        {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2259.21) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Parcela a Deduzir": formatar_moeda(169.44)},
+        {"Faixa": "3ª", "Base de Cálculo": formatar_moeda(2826.66) + " a " + formatar_moeda(3751.05), "Alíquota": "15%", "Parcela a Deduzir": formatar_moeda(381.44)},
+        {"Faixa": "4ª", "Base de Cálculo": formatar_moeda(3751.06) + " a " + formatar_moeda(4664.68), "Alíquota": "22,5%", "Parcela a Deduzir": formatar_moeda(662.77)},
+        {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Parcela a Deduzir": formatar_moeda(896.00)}
+    ])
+    st.dataframe(tabela_irrf_df_fev2024, use_container_width=True, hide_index=True)
+
+    st.markdown("#### **Vigência: 01/05/2023 a 31/01/2024** ")
+    tabela_irrf_df_mai2023 = pd.DataFrame([
         {"Faixa": "1ª", "Base de Cálculo": "Até " + formatar_moeda(2112.00), "Alíquota": "0%", "Parcela a Deduzir": formatar_moeda(0.00)},
         {"Faixa": "2ª", "Base de Cálculo": formatar_moeda(2112.01) + " a " + formatar_moeda(2826.65), "Alíquota": "7,5%", "Parcela a Deduzir": formatar_moeda(158.40)},
         {"Faixa": "3ª", "Base de Cálculo": formatar_moeda(2826.66) + " a " + formatar_moeda(3751.05), "Alíquota": "15%", "Parcela a Deduzir": formatar_moeda(370.40)},
         {"Faixa": "4ª", "Base de Cálculo": formatar_moeda(3751.06) + " a " + formatar_moeda(4664.68), "Alíquota": "22,5%", "Parcela a Deduzir": formatar_moeda(651.73)},
         {"Faixa": "5ª", "Base de Cálculo": "Acima de " + formatar_moeda(4664.68), "Alíquota": "27,5%", "Parcela a Deduzir": formatar_moeda(884.96)}
     ])
-    st.dataframe(tabela_irrf_df_2024, use_container_width=True, hide_index=True)
+    st.dataframe(tabela_irrf_df_mai2023, use_container_width=True, hide_index=True)
     
+    st.subheader("📋 Como Calcular - IRRF")
+    st.code(f"""
+Base de Cálculo = Salário Bruto - (Dependentes × {formatar_moeda(DESCONTO_DEPENDENTE_IR)}) - INSS - Outros Descontos
+IRRF = (Base de Cálculo × Alíquota da Faixa) - Parcela a Deduzir da Faixa
+    """)
+
     st.subheader("📝 Legislação de Referência")
     st.write("""
     - **Salário Família:** Lei 8.213/1991
     - **INSS 2025:** Lei 8.212/1991 e Portaria MF/MPS 01/2024
     - **INSS 2024:** Lei 8.212/1991 e Portaria INTERMINISTERIAL MPS/MF Nº 2, DE 11 DE JANEIRO DE 2024
-    - **IRRF 2025:** Lei 7.713/1988 e Instrução Normativa RFB 2.126/2024
-    - **IRRF 2024:** Lei 7.713/1988 e Lei nº 14.663, de 28 de agosto de 2023
+    - **IRRF (Atualizações):** Lei 7.713/1988, Lei nº 14.663/2023 [cite: 13], e MP nº 1.294/2025 [cite: 14]
     """)
 
 st.sidebar.header("ℹ️ Sobre")
@@ -1114,7 +1162,7 @@ st.sidebar.info("""
 Cálculos dinâmicos com base na **Competência** informada:
 - Salário Família (2024 e 2025)
 - INSS (Tabela 2024 e 2025)
-- IRRF (Tabela 2024 e 2025)
+- IRRF (Tabelas multi-período: 2023/2024/2025)
 
 ⚠️ Consulte um contador para validação oficial.
 """)
@@ -1139,7 +1187,7 @@ with col_rodape1:
     st.caption(f"📅 Data da Consulta: {formatar_data(get_br_datetime_now())}")
 
 with col_rodape2:
-    st.caption("🏛 Legislação 2024/2025 - Vigência a partir da competência")
+    st.caption("🏛 Legislação 2023/2024/2025 - Vigência a partir da competência")
 
 with col_rodape3:
     st.caption("⚡ Desenvolvido para auditoria contábil")
