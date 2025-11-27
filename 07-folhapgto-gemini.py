@@ -1291,4 +1291,9 @@ with tab3:
         st.subheader("📋 Tabela INSS 2023")
         tabela_inss_df_2023 = pd.DataFrame([
             {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1320.00), "Alíquota": "7,5%"},
-            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1320.01) + " a " + formatar}
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1320.01) + " a " + formatar_moeda(2571.29), "Alíquota": "9,0%"}, # Linha corrigida
+            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2571.30) + " a " + formatar_moeda(3856.94), "Alíquota": "12,0%"},
+            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(3856.95) + " a " + formatar_moeda(7507.49), "Alíquota": "14,0%"}
+        ])
+        st.dataframe(tabela_inss_df_2023, use_container_width=True, hide_index=True)
+        st.caption(f"**Teto 2023:** {formatar_moeda(7507.49)}")
