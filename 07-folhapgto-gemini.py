@@ -1012,4 +1012,283 @@ with tab2:
                     uploaded_filename = f"Google_Sheets_{sheet_name}"
                     st.success("✅ Conexão com Google Sheets estabelecida!")
                     
-                    # Renomeia colunas para o padrão
+                    # Renomeia colunas para o padrão esperado
+                    if len(df.columns) >= 3:
+                        df.columns = ['Nome', 'Salario_Bruto', 'Dependentes'] + list(df.columns[3:])
+                        if len(df.columns) > 3:
+                            df = df.rename(columns={df.columns[3]: 'Outros_Descontos'})
+                        else:
+                            df['Outros_Descontos'] = 0.0
+                    else:
+                         st.warning("O Google Sheet precisa de pelo menos 3 colunas (Nome, Salario_Bruto, Dependentes).")
+                         df = None
+                except Exception as e:
+                    st.error(f"❌ Erro ao conectar com Google Sheets. Verifique a URL e se a aba '{sheet_name}' existe e está pública. Erro: {e}")
+    
+    elif opcao_entrada == "✏️ Digitação Manual":
+        st.subheader("📝 Digitação Manual de Dados")
+        num_funcionarios = st.number_input("Número de funcionários:",min_value=1,max_value=50,value=max(3, len(st.session_state.dados_manuais)) if st.session_state.dados_manuais else 3,step=1,key="num_funcionarios")
+        
+        # Ajusta o tamanho da lista de dados manuais
+        if len(st.session_state.dados_manuais) < num_funcionarios:
+            diferenca = num_funcionarios - len(st.session_state.dados_manuais)
+            novos_dados = [{'Nome': f"Funcionário {i+1+len(st.session_state.dados_manuais)}", 'Salario_Bruto': 2000.0, 'Dependentes': 1, 'Outros_Descontos': 0.0} for i in range(diferenca)]
+            st.session_state.dados_manuais.extend(novos_dados)
+        elif len(st.session_state.dados_manuais) > num_funcionarios:
+            st.session_state.dados_manuais = st.session_state.dados_manuais[:num_funcionarios]
+            
+        dados_manuais_input = []
+        for i in range(num_funcionarios):
+            st.write(f"--- **Funcionário {i+1}** ---")
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            # Garante que os valores iniciais vêm do session state
+            current_data = st.session_state.dados_manuais[i]
+            
+            with col_m1:
+                nome = st.text_input(f"Nome {i+1}", value=current_data['Nome'], key=f"nome_manual_{i}")
+            with col_m2:
+                salario = st.number_input(f"Salário {i+1}", min_value=0.0, value=current_data['Salario_Bruto'], step=100.0, key=f"salario_manual_{i}")
+            with col_m3:
+                dependentes = st.number_input(f"Dependentes {i+1}", min_value=0, value=current_data['Dependentes'], step=1, key=f"dependentes_manual_{i}")
+            with col_m4:
+                outros_desc = st.number_input(f"Outros Desc. {i+1}", min_value=0.0, value=current_data['Outros_Descontos'], step=50.0, key=f"outros_manual_{i}")
+            
+            dados_manuais_input.append({'Nome': nome, 'Salario_Bruto': salario, 'Dependentes': dependentes, 'Outros_Descontos': outros_desc})
+            
+        st.session_state.dados_manuais = dados_manuais_input
+        df = pd.DataFrame(st.session_state.dados_manuais)
+        uploaded_filename = "dados_manuais"
+        st.success("✅ Dados manuais prontos! Clique em 'Processar Auditoria' para calcular.")
+
+    # --- PROCESSAMENTO ---
+    if df is not None and not df.empty:
+        try:
+            # Garante a conversão correta de tipos
+            df['Salario_Bruto'] = pd.to_numeric(df['Salario_Bruto'], errors='coerce').fillna(0)
+            df['Dependentes'] = pd.to_numeric(df['Dependentes'], errors='coerce').fillna(0).astype(int)
+            if 'Outros_Descontos' in df.columns:
+                df['Outros_Descontos'] = pd.to_numeric(df['Outros_Descontos'], errors='coerce').fillna(0)
+            else:
+                df['Outros_Descontos'] = 0.0
+            
+            if st.button("🚀 Processar Auditoria Completa", type="primary", key="processar_auditoria"):
+                with st.spinner("Processando auditoria..."):
+                    
+                    # Seleciona as tabelas OFICIAIS
+                    tabela_inss_aplicada, tabela_irrf_aplicada, limite_sf_aplicado, valor_sf_aplicado, ano_base, irrf_periodo, ds_maximo = selecionar_tabelas(competencia_lote)
+
+                    # Seleciona as tabelas SIMULADAS (se a checkbox estiver marcada)
+                    if simular_lote_ano_anterior:
+                         t_inss_sim, t_irrf_sim, l_sf_sim, v_sf_sim, ano_base_sim, irrf_periodo_sim, ds_max_sim = selecionar_tabelas_simuladas(competencia_lote)
+                    
+                    resultados = []
+                    for _, row in df.iterrows():
+                        salario_bruto = float(row['Salario_Bruto'])
+                        dependentes = int(row['Dependentes'])
+                        outros_desc = float(row.get('Outros_Descontos', 0))
+                        
+                        # CÁLCULO OFICIAL
+                        inss_oficial = calcular_inss(salario_bruto, tabela_inss_aplicada)
+                        sal_familia_oficial = calcular_salario_familia(salario_bruto, dependentes, limite_sf_aplicado, valor_sf_aplicado)
+                        irrf_oficial, metodo_deducao_oficial, _, _ = calcular_irrf(salario_bruto, dependentes, inss_oficial, outros_desc, tabela_irrf_aplicada, ds_maximo)
+                        salario_liquido_oficial = salario_bruto + sal_familia_oficial - inss_oficial - irrf_oficial - outros_desc
+                        
+                        registro = {
+                            'Nome': row['Nome'], 
+                            'Salario_Bruto': salario_bruto, 
+                            'Dependentes': dependentes, 
+                            'Outros_Descontos': outros_desc, 
+                            'Salario_Familia': sal_familia_oficial, 
+                            'INSS': inss_oficial, 
+                            'IRRF': irrf_oficial, 
+                            'Salario_Liquido': salario_liquido_oficial, 
+                            'Metodo_Deducao': metodo_deducao_oficial,
+                            'Competencia': competencia_lote
+                        }
+
+                        # ADICIONA CÁLCULO DE SIMULAÇÃO
+                        if simular_lote_ano_anterior:
+                            inss_sim = calcular_inss(salario_bruto, t_inss_sim)
+                            sal_familia_sim = calcular_salario_familia(salario_bruto, dependentes, l_sf_sim, v_sf_sim)
+                            irrf_sim, metodo_deducao_sim, _, _ = calcular_irrf(salario_bruto, dependentes, inss_sim, outros_desc, t_irrf_sim, ds_max_sim)
+                            salario_liquido_sim = salario_bruto + sal_familia_sim - inss_sim - irrf_sim - outros_desc
+                            
+                            registro['Salario_Familia_Sim'] = sal_familia_sim
+                            registro['INSS_Sim'] = inss_sim
+                            registro['IRRF_Sim'] = irrf_sim
+                            registro['Salario_Liquido_Sim'] = salario_liquido_sim
+                            registro['Metodo_Deducao_Sim'] = metodo_deducao_sim
+                            registro['Ano_Base_Sim'] = ano_base_sim
+                            registro['IRRF_Periodo_Sim'] = irrf_periodo_sim
+                            
+                        resultados.append(registro)
+                        
+                    df_resultado = pd.DataFrame(resultados)
+                    st.session_state.df_resultado = df_resultado
+                    st.session_state.uploaded_filename = uploaded_filename
+                    st.session_state.processar_sheets = False # Reseta a flag do Sheets
+                    
+                    if simular_lote_ano_anterior:
+                        st.success(f"🎉 Auditoria e **Simulação** concluídas! Tabelas Oficiais: INSS **{ano_base}**, Simulação: INSS **{ano_base_sim}**.")
+                    else:
+                        st.success(f"🎉 Auditoria concluída! Tabelas INSS: {ano_base}, IRRF: {irrf_periodo} aplicadas.")
+                    st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Erro ao processar dados: {e}")
+    
+    # Exibir resultados
+    if st.session_state.df_resultado is not None:
+        df_resultado = st.session_state.df_resultado
+        st.info(f"📊 **Dados processados de:** {st.session_state.uploaded_filename}")
+        
+        # ... (Lógica de Limpar Resultados) ...
+        col_limpar, col_vazio = st.columns([1, 3])
+        with col_limpar:
+             if st.button("🗑️ Limpar Resultados", type="secondary", key="limpar_resultados"):
+                 st.session_state.df_resultado = None
+                 st.session_state.uploaded_filename = None
+                 st.session_state.dados_manuais = []
+                 st.session_state.observacao_lote = ""
+                 st.session_state.processar_sheets = False
+                 st.success("🗑️ Resultados limpos!")
+                 st.rerun()
+        
+        st.subheader("📈 Resultados da Auditoria")
+        
+        df_display = df_resultado.copy()
+        
+        # Prepara o DataFrame para exibição (Simulação incluída)
+        if 'IRRF_Sim' in df_resultado.columns:
+            # Seleciona as colunas para o display (Oficial e Simulado)
+            colunas_display = ['Nome', 'Salario_Bruto', 'Dependentes', 'Outros_Descontos', 
+                               'Salario_Familia', 'Salario_Familia_Sim', 
+                               'INSS', 'INSS_Sim', 
+                               'IRRF', 'IRRF_Sim', 
+                               'Salario_Liquido', 'Salario_Liquido_Sim', 
+                               'Metodo_Deducao', 'Metodo_Deducao_Sim']
+            
+            df_display = df_display[colunas_display]
+            df_display.columns = ['Nome', 'Sal. Bruto', 'Deps.', 'Outros Desc.', 
+                                  'SF Of.', 'SF Sim.', 
+                                  'INSS Of.', 'INSS Sim.', 
+                                  'IRRF Of.', 'IRRF Sim.', 
+                                  'Líq. Of.', 'Líq. Sim.', 
+                                  'Ded IR Of.', 'Ded IR Sim.']
+            
+            colunas_monetarias_display = ['Sal. Bruto', 'Outros Desc.', 'SF Of.', 'SF Sim.', 'INSS Of.', 'INSS Sim.', 'IRRF Of.', 'IRRF Sim.', 'Líq. Of.', 'Líq. Sim.']
+            for coluna in colunas_monetarias_display:
+                 df_display[coluna] = df_display[coluna].apply(formatar_moeda)
+            
+            st.warning(f"Comparativo Ativo: Oficial (INSS {df_resultado['Competencia'].iloc[0].year}) vs. Simulado (INSS {df_resultado['Competencia'].iloc[0].year - 1})")
+        else:
+            colunas_monetarias = ['Salario_Bruto', 'Salario_Familia', 'INSS', 'IRRF', 'Outros_Descontos', 'Salario_Liquido']
+            for coluna in colunas_monetarias:
+                df_display[coluna] = df_display[coluna].apply(formatar_moeda)
+            df_display = df_display.drop(columns=['Competencia']).rename(columns={'Metodo_Deducao': 'Ded. IR'})
+            st.info("Simulação de ano anterior desativada. Exibindo apenas resultados oficiais.")
+
+        st.dataframe(df_display, use_container_width=True, hide_index=True) 
+        
+        st.subheader("📊 Resumo Financeiro")
+        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+        total_salario_familia = df_resultado['Salario_Familia'].sum()
+        total_inss = df_resultado['INSS'].sum()
+        total_irrf = df_resultado['IRRF'].sum()
+        folha_liquida_total = df_resultado['Salario_Liquido'].sum()
+
+        with col_r1:
+            st.metric("Total Salário Família (Oficial)", formatar_moeda(total_salario_familia))
+            if 'Salario_Familia_Sim' in df_resultado.columns:
+                sf_sim = df_resultado['Salario_Familia_Sim'].sum()
+                st.metric("Total Salário Família (Simulado)", formatar_moeda(sf_sim), delta=formatar_moeda(total_salario_familia - sf_sim).replace('R$ ', ''))
+        with col_r2:
+            st.metric("Total INSS (Oficial)", formatar_moeda(total_inss))
+            if 'INSS_Sim' in df_resultado.columns:
+                inss_sim = df_resultado['INSS_Sim'].sum()
+                st.metric("Total INSS (Simulado)", formatar_moeda(inss_sim), delta=formatar_moeda(total_inss - inss_sim).replace('R$ ', ''))
+        with col_r3:
+            st.metric("Total IRRF (Oficial)", formatar_moeda(total_irrf))
+            if 'IRRF_Sim' in df_resultado.columns:
+                irrf_sim = df_resultado['IRRF_Sim'].sum()
+                st.metric("Total IRRF (Simulado)", formatar_moeda(irrf_sim), delta=formatar_moeda(total_irrf - irrf_sim).replace('R$ ', ''))
+        with col_r4:
+            st.metric("Folha Líquida Total (Oficial)", formatar_moeda(folha_liquida_total))
+            if 'Salario_Liquido_Sim' in df_resultado.columns:
+                liq_sim = df_resultado['Salario_Liquido_Sim'].sum()
+                st.metric("Folha Líquida Total (Simulado)", formatar_moeda(liq_sim), delta=formatar_moeda(folha_liquida_total - liq_sim).replace('R$ ', ''))
+        
+        st.subheader("💾 Exportar Resultados")
+        col_csv, col_pdf = st.columns(2)
+        
+        with col_csv:
+            df_csv = df_resultado.copy()
+            # Garante que o CSV usa vírgula como decimal para facilitar a abertura no Excel/sistemas
+            colunas_monetarias_export = ['Salario_Bruto', 'Salario_Familia', 'INSS', 'IRRF', 'Outros_Descontos', 'Salario_Liquido']
+            if 'IRRF_Sim' in df_resultado.columns:
+                colunas_monetarias_export.extend(['Salario_Familia_Sim', 'INSS_Sim', 'IRRF_Sim', 'Salario_Liquido_Sim'])
+            
+            for coluna in colunas_monetarias_export:
+                df_csv[coluna] = df_csv[coluna].apply(lambda x: f"{x:.2f}".replace('.', ','))
+            
+            csv_resultado = df_csv.to_csv(index=False, sep=';', encoding='utf-8')
+            st.download_button(label="📥 Baixar CSV",data=csv_resultado,file_name=f"auditoria_folha_{get_br_datetime_now().strftime('%d%m%Y_%H%M')}.csv",mime="text/csv",help="Baixe os resultados em CSV (separador ponto e vírgula, decimal vírgula)")
+        
+        with col_pdf:
+            if st.button("📄 Gerar PDF Completo", type="secondary", key="gerar_pdf_completo"):
+                with st.spinner("Gerando relatório PDF..."):
+                    try:
+                        # CORRIGIDO: Chama a função que agora retorna bytes codificados em latin1
+                        pdf_output = gerar_pdf_auditoria_completa(df_resultado, st.session_state.uploaded_filename,total_salario_familia,total_inss,total_irrf,folha_liquida_total, st.session_state.observacao_lote)
+                        
+                        st.markdown(
+                            criar_link_download_pdf(pdf_output, f"Auditoria_Completa_{get_br_datetime_now().strftime('%d%m%Y_%H%M')}.pdf"), 
+                            unsafe_allow_html=True
+                        )
+                    except Exception as e:
+                        st.error(f"❌ Erro ao gerar PDF: {e}")
+
+# ----------------------------------------------------------------------
+
+with tab3:
+    st.header("Informações Técnicas")
+    st.markdown("### 📊 Tabelas Legais - INSS e IRRF")
+    
+    st.subheader("📅 Regra de Vigência (Competência)")
+    st.info("""
+    O sistema utiliza as seguintes tabelas com base na **Competência Analisada**:
+    - **INSS/Salário Família:** Selecionado pelo ano (2023, 2024 ou 2025).
+    - **IRRF:** Selecionado pela data específica da competência (quatro períodos de vigência, incluindo o reajuste de 01/05/2023).
+    - **Dedução IRRF:** O sistema compara o Desconto Legal (INSS + Ded. Dependente) com o Desconto Simplificado Opcional e aplica o que resultar no **menor imposto**.
+    - **Simulação Ativa:** Se marcada, a simulação utiliza as tabelas do **ano imediatamente anterior** (Ex: Comp. 2025 -> Tabela 2024).
+    """)
+    
+    col_info1, col_info2, col_info3 = st.columns(3)
+    
+    with col_info1:
+        st.subheader("📋 Tabela INSS 2025")
+        tabela_inss_df_2025 = pd.DataFrame([
+            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1518.00), "Alíquota": "7,5%"},
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1518.01) + " a " + formatar_moeda(2793.88), "Alíquota": "9,0%"},
+            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2793.89) + " a " + formatar_moeda(4190.83), "Alíquota": "12,0%"},
+            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(4190.84) + " a " + formatar_moeda(8157.41), "Alíquota": "14,0%"}
+        ])
+        st.dataframe(tabela_inss_df_2025, use_container_width=True, hide_index=True)
+        st.caption(f"**Teto 2025:** {formatar_moeda(8157.41)}")
+    
+    with col_info2:
+        st.subheader("📋 Tabela INSS 2024")
+        tabela_inss_df_2024 = pd.DataFrame([
+            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1412.00), "Alíquota": "7,5%"},
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1412.01) + " a " + formatar_moeda(2666.68), "Alíquota": "9,0%"},
+            {"Faixa": "3ª", "Salário de Contribuição": formatar_moeda(2666.69) + " a " + formatar_moeda(4000.03), "Alíquota": "12,0%"},
+            {"Faixa": "4ª", "Salário de Contribuição": formatar_moeda(4000.04) + " a " + formatar_moeda(7786.02), "Alíquota": "14,0%"}
+        ])
+        st.dataframe(tabela_inss_df_2024, use_container_width=True, hide_index=True)
+        st.caption(f"**Teto 2024:** {formatar_moeda(7786.02)}")
+
+    with col_info3:
+        st.subheader("📋 Tabela INSS 2023")
+        tabela_inss_df_2023 = pd.DataFrame([
+            {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1320.00), "Alíquota": "7,5%"},
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1320.01) + " a " + formatar
