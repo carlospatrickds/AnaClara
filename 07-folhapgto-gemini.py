@@ -1291,4 +1291,4 @@ with tab3:
         st.subheader("📋 Tabela INSS 2023")
         tabela_inss_df_2023 = pd.DataFrame([
             {"Faixa": "1ª", "Salário de Contribuição": "Até " + formatar_moeda(1320.00), "Alíquota": "7,5%"},
-            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1320.01) + " a " + formatar
+            {"Faixa": "2ª", "Salário de Contribuição": formatar_moeda(1320.01) + " a " + formatar}
