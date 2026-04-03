@@ -1,8 +1,12 @@
-import streamlit as st
+    import streamlit as st
 from datetime import datetime
 import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+# PDF
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
 # =========================
 # FUNÇÕES
@@ -45,7 +49,6 @@ def calcular_rescisao(d):
     dem = datetime.strptime(d["demissao"], "%d/%m/%Y")
 
     meses = meses_trabalhados(adm, dem)
-
     base = d["salario"] + d["variavel"] + d["adicionais"]
 
     saldo = base / 30 * dem.day
@@ -53,7 +56,10 @@ def calcular_rescisao(d):
     anos = dem.year - adm.year
     aviso_dias = min(30 + anos * 3, 90)
 
+    # AVISO PRÉVIO
     if d["tipo"] == "Pedido":
+        aviso = 0
+    elif d["aviso"] == "Trabalhado":
         aviso = 0
     elif d["tipo"] == "Acordo":
         aviso = (base / 30 * aviso_dias) / 2
@@ -87,7 +93,6 @@ def calcular_rescisao(d):
     ])
 
     return {
-        "Base de cálculo": base,
         "Saldo salário": saldo,
         "Aviso prévio": aviso,
         "13º proporcional": decimo,
@@ -101,82 +106,167 @@ def calcular_rescisao(d):
     }
 
 
-def gerar_pdf(resultado):
-    caminho = "/mnt/data/rescisao.pdf"
-    doc = SimpleDocTemplate(caminho)
+def classificar_verbas(resultado, tipo):
+    inc = {}
+    cont = {}
+
+    for k, v in resultado.items():
+
+        if tipo == "Sem justa causa":
+            inc[k] = v
+
+        elif tipo == "Pedido":
+            if k in ["Aviso prévio", "Multa FGTS"]:
+                cont[k] = v
+            else:
+                inc[k] = v
+
+        elif tipo == "Justa causa":
+            if k == "Saldo salário":
+                inc[k] = v
+            else:
+                cont[k] = v
+
+        else:
+            inc[k] = v
+
+    return inc, cont
+
+
+def gerar_memoria(resultado):
+    linhas = []
+    for k, v in resultado.items():
+        linhas.append([k, f"{v:,.2f}"])
+    return linhas
+
+
+def gerar_pdf(resultado, dados):
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
 
     elementos = []
-    elementos.append(Paragraph("Relatório de Rescisão Trabalhista", styles["Title"]))
+
+    elementos.append(Paragraph("LAUDO DE CÁLCULO TRABALHISTA", styles["Title"]))
     elementos.append(Spacer(1, 12))
 
+    elementos.append(Paragraph(f"Admissão: {dados['admissao']}", styles["Normal"]))
+    elementos.append(Paragraph(f"Demissão: {dados['demissao']}", styles["Normal"]))
+    elementos.append(Spacer(1, 12))
+
+    tabela = [["Verba", "Valor (R$)"]]
+
     for k, v in resultado.items():
-        elementos.append(Paragraph(f"{k}: R$ {v:,.2f}", styles["Normal"]))
+        tabela.append([k, f"{v:,.2f}"])
+
+    t = Table(tabela)
+    t.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 1, colors.black)
+    ]))
+
+    elementos.append(t)
 
     doc.build(elementos)
-    return caminho
+    buffer.seek(0)
+    return buffer
 
 
 # =========================
 # INTERFACE
 # =========================
 
-st.title("📊 Calculadora Profissional de Rescisão")
+aba1, aba2 = st.tabs(["📊 Calculadora", "📘 Guia"])
 
-salario = st.number_input("Salário base", 0.0, value=3000.0)
-variavel = st.number_input("Média variável", 0.0, value=0.0)
-adicionais = st.number_input("Adicionais", 0.0, value=0.0)
+with aba1:
 
-admissao = st.text_input("Admissão", "01/01/2020")
-demissao = st.text_input("Demissão", "20/07/2024")
+    st.title("Calculadora Profissional de Rescisão")
 
-tipo = st.selectbox("Tipo", [
-    "Sem justa causa",
-    "Pedido",
-    "Acordo",
-    "Justa causa"
-])
+    salario = st.number_input("Salário base", value=2000.0)
+    variavel = st.number_input("Média variável", value=0.0)
+    adicionais = st.number_input("Adicionais", value=0.0)
 
-ferias_venc = st.checkbox("Férias vencidas")
-dobro = st.checkbox("Férias em dobro")
+    admissao = st.text_input("Admissão", "01/10/2024")
+    demissao = st.text_input("Demissão", "30/03/2026")
 
-# FGTS manual
-st.subheader("FGTS por competência")
-texto_fgts = st.text_area(
-    "Cole no formato: 01/2020 - 2000",
-    height=150
-)
+    tipo = st.selectbox("Tipo", [
+        "Sem justa causa", "Pedido", "Acordo", "Justa causa"
+    ])
+
+    aviso = st.selectbox("Aviso prévio", ["Indenizado", "Trabalhado"])
+
+    ferias_venc = st.checkbox("Férias vencidas")
+    dobro = st.checkbox("Férias em dobro")
+
+    st.subheader("FGTS por competência")
+    texto_fgts = st.text_area("Formato: 01/2020 - 2000")
+
+    if st.button("Calcular"):
+
+        df_fgts, total_fgts = processar_fgts_texto(texto_fgts)
+
+        dados = {
+            "salario": salario,
+            "variavel": variavel,
+            "adicionais": adicionais,
+            "admissao": admissao,
+            "demissao": demissao,
+            "tipo": tipo,
+            "aviso": aviso,
+            "ferias_venc": ferias_venc,
+            "dobro": dobro,
+            "fgts": total_fgts
+        }
+
+        resultado = calcular_rescisao(dados)
+
+        st.subheader("FGTS detalhado")
+        st.dataframe(df_fgts)
+
+        st.subheader("Resultado")
+        st.dataframe(pd.DataFrame(resultado.items(), columns=["Verba", "Valor"]))
+
+        inc, cont = classificar_verbas(resultado, tipo)
+
+        st.subheader("✔ Incontroversas")
+        st.write(inc)
+
+        st.subheader("⚠️ Controvertidas")
+        st.write(cont)
+
+        memoria = gerar_memoria(resultado)
+
+        st.subheader("Memória de cálculo")
+        st.table(memoria)
+
+        pdf = gerar_pdf(resultado, dados)
+
+        st.download_button("📄 Baixar PDF", pdf, file_name="laudo.pdf")
+
 
 # =========================
-# EXECUÇÃO
+# GUIA
 # =========================
 
-if st.button("Calcular"):
+with aba2:
+    st.markdown("""
+### Guia básico
 
-    df_fgts, total_fgts = processar_fgts_texto(texto_fgts)
+**Salário base**: remuneração fixa  
+**Variável**: horas extras, comissões  
+**Adicionais**: insalubridade, noturno  
 
-    dados = {
-        "salario": salario,
-        "variavel": variavel,
-        "adicionais": adicionais,
-        "admissao": admissao,
-        "demissao": demissao,
-        "tipo": tipo,
-        "ferias_venc": ferias_venc,
-        "dobro": dobro,
-        "fgts": total_fgts
-    }
+**Aviso prévio**:
+- Trabalhado → não entra como verba
+- Indenizado → entra no cálculo  
 
-    resultado = calcular_rescisao(dados)
+**FGTS**:
+- 8% por competência  
+- multa: 40% ou 20%  
 
-    st.subheader("FGTS detalhado")
-    st.dataframe(df_fgts)
+**Férias**:
+- Proporcional: conforme meses  
+- Vencidas: pode dobrar  
 
-    st.subheader("Resultado")
-    df = pd.DataFrame(resultado.items(), columns=["Verba", "Valor"])
-    st.dataframe(df)
-
-    caminho = gerar_pdf(resultado)
-
-    with open(caminho, "rb") as f:
-        st.download_button("📄 Baixar PDF", f, file_name="rescisao.pdf")
+⚠️ Use como base técnica. Ajustes podem ser necessários conforme o processo.
+""")
