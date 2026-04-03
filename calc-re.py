@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import calendar
+import re
 
 # ------------------------------------------------------------
 # CONFIGURAÇÕES INICIAIS
@@ -10,6 +11,17 @@ import calendar
 st.set_page_config(page_title="Calculadora Trabalhista", layout="wide")
 st.title("⚖️ Calculadora de Rescisão e FGTS")
 st.markdown("---")
+
+# ------------------------------------------------------------
+# FUNÇÃO AUXILIAR: CONVERTER DATA BRASILEIRA PARA DATE
+# ------------------------------------------------------------
+def parse_brasil_date(data_str):
+    """Recebe string dd/mm/aaaa e retorna datetime.date ou None."""
+    try:
+        dia, mes, ano = map(int, data_str.split('/'))
+        return datetime(ano, mes, dia).date()
+    except:
+        return None
 
 # ------------------------------------------------------------
 # TABELAS DE INSS (vigência a partir da data informada)
@@ -94,83 +106,43 @@ def dias_aviso_indenizado(data_admissao, data_demissao):
     """Calcula dias de aviso prévio indenizado (30 + 3 por ano completo)."""
     anos = relativedelta(data_demissao, data_admissao).years
     dias = 30 + (3 * anos)
-    return min(dias, 90)  # máximo 90 dias
+    return min(dias, 90)
 
 def data_projetada(data_demissao, dias_aviso):
-    """Data fim do contrato considerando aviso indenizado."""
     return data_demissao + timedelta(days=dias_aviso)
 
 def meses_proporcionais(data_inicio, data_fim):
-    """
-    Retorna quantidade de meses proporcionais (1/12 por mês com pelo menos 15 dias).
-    Para 13º e férias proporcionais.
-    """
+    """Retorna meses proporcionais (considera fração >= 15 dias)."""
     if data_inicio > data_fim:
         return 0
-    # primeiro mês: se começou após o dia 15, desconsidera
-    # último mês: se terminou antes do dia 15, desconsidera
-    # simplificação: conta meses cheios e ajusta
     meses = (data_fim.year - data_inicio.year) * 12 + (data_fim.month - data_inicio.month)
-    # dias do mês inicial
     if data_inicio.day > 15:
         meses -= 1
-    # dias do mês final
-    ultimo_dia_mes = calendar.monthrange(data_fim.year, data_fim.month)[1]
     if data_fim.day < 15:
         meses -= 1
-    # acrescenta 1 se o período for maior que zero
-    total = max(meses + 1, 0)
-    return total
+    return max(meses + 1, 0)
 
 def calcular_ferias_proporcionais(data_admissao, data_fim_projetada, salario):
-    """Férias proporcionais (aviso conta no período)."""
-    # data do último aniversário de admissão
     ultimo_aniversario = datetime(data_fim_projetada.year, data_admissao.month, data_admissao.day)
     if ultimo_aniversario > data_fim_projetada:
         ultimo_aniversario = datetime(data_fim_projetada.year - 1, data_admissao.month, data_admissao.day)
     meses = meses_proporcionais(ultimo_aniversario, data_fim_projetada)
-    if meses < 0:
-        meses = 0
     proporcao = meses / 12
     valor = salario * proporcao
-    adicional = valor / 3
-    return valor, adicional
+    return valor, valor / 3
 
 def calcular_decimo_terceiro_proporcional(data_admissao, data_fim_projetada, salario):
-    """13º proporcional considerando meses trabalhados no ano."""
-    # data de início do ano: max(01/01/ano, data_admissão)
     inicio_ano = datetime(data_fim_projetada.year, 1, 1)
     if data_admissao > inicio_ano:
         inicio_ano = data_admissao
     meses = meses_proporcionais(inicio_ano, data_fim_projetada)
-    if meses < 0:
-        meses = 0
-    return (salario / 12) * meses
+    return (salario / 12) * max(meses, 0)
 
-def calcular_fgts_acumulado(data_admissao, data_demissao, salario_mensal, aviso_dias=0):
-    """
-    Simula o total de FGTS depositado (8% sobre salário mensal + 13º)
-    entre a admissão e a data projetada (com aviso).
-    Retorna o valor total depositado.
-    """
-    data_fim = data_demissao + timedelta(days=aviso_dias)
-    total_fgts = 0.0
-    # Mês a mês
-    data_corrente = datetime(data_admissao.year, data_admissao.month, 1)
-    data_fim_mes = datetime(data_fim.year, data_fim.month, 1)
-    while data_corrente <= data_fim_mes:
-        # depósito mensal
-        total_fgts += salario_mensal * 0.08
-        # 13º do ano corrente? Depósito apenas em dezembro de cada ano completo ou proporcional na rescisão
-        # Para simplicidade, na rescisão o FGTS do 13º é pago junto. Vamos considerar que o 13º proporcional é depositado na rescisão.
-        # Mas para evitar duplicidade, faremos uma lógica separada: incluímos 13º apenas no mês de dezembro de cada ano
-        # se o funcionário ainda estiver ativo naquele dezembro.
-        # Vamos pular essa complexidade e usar a mesma lógica da aba FGTS.
-        data_corrente += relativedelta(months=1)
-    # Adicionar 13º proporcional na rescisão
-    decimo = calcular_decimo_terceiro_proporcional(data_admissao, data_fim, salario_mensal)
-    total_fgts += decimo * 0.08
-    return total_fgts
+def calcular_fgts_total(salarios_mensais, decimo_terceiro_prop):
+    """salarios_mensais: lista de valores por mês (já inclui todos os meses do contrato)."""
+    total = sum(salarios_mensais) * 0.08
+    total += decimo_terceiro_prop * 0.08
+    return total
 
 # ------------------------------------------------------------
 # INTERFACE PRINCIPAL (ABAS)
@@ -179,11 +151,11 @@ tab1, tab2, tab3 = st.tabs(["📊 Calculadora de Rescisão", "📚 Guia Trabalhi
 
 # -------------------- ABA 1: RESCISÃO --------------------
 with tab1:
-    st.subheader("Dados do Contrato e Rescisão")
+    st.subheader("Dados do Contrato e Rescisão (datas no formato dd/mm/aaaa)")
     col1, col2 = st.columns(2)
     with col1:
-        data_adm = st.date_input("Data de Admissão", datetime(2021, 3, 15))
-        data_dem = st.date_input("Data de Desligamento", datetime(2024, 10, 20))
+        data_adm_str = st.text_input("Data de Admissão (dd/mm/aaaa)", value="15/03/2021")
+        data_dem_str = st.text_input("Data de Desligamento (dd/mm/aaaa)", value="20/10/2024")
         salario = st.number_input("Salário Bruto Mensal (R$)", min_value=0.0, value=3000.0, step=100.0, format="%.2f")
         motivo = st.selectbox("Motivo da Rescisão", ["Sem justa causa", "Pedido de demissão", "Acordo (Lei 13.467/2017)"])
     with col2:
@@ -194,7 +166,11 @@ with tab1:
     calcular = st.button("Calcular Rescisão", type="primary")
 
     if calcular:
-        if data_adm >= data_dem:
+        data_adm = parse_brasil_date(data_adm_str)
+        data_dem = parse_brasil_date(data_dem_str)
+        if not data_adm or not data_dem:
+            st.error("Datas inválidas. Use o formato dd/mm/aaaa, ex: 15/03/2021")
+        elif data_adm >= data_dem:
             st.error("Data de desligamento deve ser posterior à data de admissão.")
         else:
             # 1. Saldo de salário
@@ -209,10 +185,10 @@ with tab1:
                 valor_aviso = (salario / 30) * dias_aviso
                 aviso_dias = dias_aviso
             elif tipo_aviso == "Trabalhado":
-                dias_aviso = 30  # padrão, mas não pago indenizado
+                dias_aviso = 30
                 valor_aviso = 0.0
-                aviso_dias = 30  # conta como tempo de serviço
-            else:  # dispensado
+                aviso_dias = 30
+            else:
                 dias_aviso = 0
                 valor_aviso = 0.0
                 aviso_dias = 0
@@ -221,7 +197,7 @@ with tab1:
             if tipo_aviso == "Indenizado (não trabalhado)":
                 data_proj = data_projetada(data_dem, dias_aviso)
             else:
-                data_proj = data_dem  # aviso trabalhado ou dispensado não estende o contrato
+                data_proj = data_dem
 
             # 3. 13º proporcional
             decimo_terceiro = calcular_decimo_terceiro_proporcional(data_adm, data_proj, salario)
@@ -233,29 +209,31 @@ with tab1:
             ferias_prop, adicional_prop = calcular_ferias_proporcionais(data_adm, data_proj, salario)
             valor_ferias_prop = ferias_prop + adicional_prop
 
-            # 6. FGTS e multa (apenas para sem justa causa ou acordo)
+            # 6. FGTS e multa (simulação simplificada com salário constante)
+            # Gera lista de salários mensais do período (mês a mês)
+            start = datetime(data_adm.year, data_adm.month, 1)
+            end = datetime(data_dem.year, data_dem.month, 1)
+            salarios_mensais = []
+            current = start
+            while current <= end:
+                salarios_mensais.append(salario)
+                current += relativedelta(months=1)
+            fgts_total = calcular_fgts_total(salarios_mensais, decimo_terceiro)
+
             if motivo == "Sem justa causa":
-                fgts_total = calcular_fgts_acumulado(data_adm, data_dem, salario, aviso_dias)
                 multa_fgts = fgts_total * 0.40
-                if motivo == "Acordo (Lei 13.467/2017)":
-                    multa_fgts = fgts_total * 0.20
             elif motivo == "Acordo (Lei 13.467/2017)":
-                fgts_total = calcular_fgts_acumulado(data_adm, data_dem, salario, aviso_dias)
                 multa_fgts = fgts_total * 0.20
             else:
-                fgts_total = 0.0
                 multa_fgts = 0.0
 
-            # 7. Base para INSS e desconto
+            # 7. Base para INSS
             base_inss = saldo_salario + valor_aviso + decimo_terceiro
-            # férias (vencidas e proporcionais) não entram no INSS
             inss = calcular_inss(base_inss, data_dem)
 
-            # 8. Total bruto e líquido (IRRF simplificado - apenas informativo)
+            # 8. Totais
             total_bruto = saldo_salario + valor_aviso + decimo_terceiro + valor_ferias_vencidas + valor_ferias_prop + multa_fgts
             total_descontos = inss
-            # Aviso prévio trabalhado não tem verba, mas se o empregado pediu demissão e não cumpriu, há desconto.
-            # Vamos ignorar essa complexidade por enquanto.
             liquido = total_bruto - total_descontos
 
             # Exibir resultados
@@ -269,7 +247,8 @@ with tab1:
                 "Multa 40% FGTS" if motivo == "Sem justa causa" else "Multa 20% FGTS (acordo)": multa_fgts,
             }
             if motivo == "Pedido de demissão":
-                resultados.pop("Multa 40% FGTS" if "Multa" in list(resultados.keys())[-1] else "Multa 20% FGTS (acordo)", None)
+                resultados.pop("Multa 40% FGTS", None)
+                resultados.pop("Multa 20% FGTS (acordo)", None)
 
             df_verbas = pd.DataFrame(list(resultados.items()), columns=["Verba", "Valor (R$)"])
             df_verbas["Valor (R$)"] = df_verbas["Valor (R$)"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
@@ -334,15 +313,19 @@ with tab2:
 
 # -------------------- ABA 3: CALCULADORA DE FGTS --------------------
 with tab3:
-    st.subheader("Simulação de FGTS Mensal")
+    st.subheader("Simulação de FGTS Mensal (datas no formato dd/mm/aaaa)")
     col_fgts1, col_fgts2 = st.columns(2)
     with col_fgts1:
-        data_adm_fgts = st.date_input("Data de Admissão (FGTS)", datetime(2021, 3, 15), key="adm_fgts")
+        data_adm_fgts_str = st.text_input("Data de Admissão (dd/mm/aaaa)", value="15/03/2021", key="adm_fgts")
     with col_fgts2:
-        data_dem_fgts = st.date_input("Data de Desligamento (FGTS)", datetime(2024, 10, 20), key="dem_fgts")
+        data_dem_fgts_str = st.text_input("Data de Desligamento (dd/mm/aaaa)", value="20/10/2024", key="dem_fgts")
 
     if st.button("Gerar Competências", key="gerar_fgts"):
-        if data_adm_fgts >= data_dem_fgts:
+        data_adm_fgts = parse_brasil_date(data_adm_fgts_str)
+        data_dem_fgts = parse_brasil_date(data_dem_fgts_str)
+        if not data_adm_fgts or not data_dem_fgts:
+            st.error("Datas inválidas. Use o formato dd/mm/aaaa, ex: 15/03/2021")
+        elif data_adm_fgts >= data_dem_fgts:
             st.error("Data de admissão deve ser anterior ao desligamento.")
         else:
             # Gerar lista de meses entre admissão e demissão (incluindo ambos)
@@ -354,29 +337,27 @@ with tab3:
                 meses.append(current)
                 current += relativedelta(months=1)
 
-            # Criar DataFrame com competências e salários (inicialmente iguais ao último salário informado)
-            # Para simplificar, pediremos um salário base e permitiremos edição
-            salario_base = st.number_input("Salário mensal padrão (R$)", min_value=0.0, value=3000.0, step=100.0, key="salario_fgts")
+            # Salário padrão
+            salario_padrao = st.number_input("Salário mensal padrão (R$)", min_value=0.0, value=3000.0, step=100.0, key="salario_fgts_padrao")
 
+            # Criar DataFrame editável com valores iguais ao padrão inicialmente
             df_fgts = pd.DataFrame({
                 "Competência": [m.strftime("%m/%Y") for m in meses],
-                "Remuneração (R$)": [salario_base] * len(meses)
+                "Remuneração (R$)": [salario_padrao] * len(meses)
             })
-            st.write("Edite os valores de remuneração conforme necessário:")
-            df_editado = st.data_editor(df_fgts, use_container_width=True, num_rows="dynamic")
+            st.write("Edite os valores de remuneração por mês conforme necessário:")
+            df_editado = st.data_editor(df_fgts, use_container_width=True, num_rows="dynamic", key="editor_fgts")
 
-            if st.button("Calcular FGTS", key="calc_fgts"):
-                total_fgts = 0.0
-                for _, row in df_editado.iterrows():
-                    remun = row["Remuneração (R$)"]
-                    total_fgts += remun * 0.08
-                # Adicionar 13º salário (um salário por ano completo ou proporcional na rescisão)
-                # Simples: adiciona 8% sobre o 13º proporcional no último ano
-                ultimo_mes = datetime(data_dem_fgts.year, data_dem_fgts.month, 1)
-                decimo = calcular_decimo_terceiro_proporcional(data_adm_fgts, data_dem_fgts, salario_base)
-                total_fgts += decimo * 0.08
+            if st.button("Calcular FGTS Total", key="calc_fgts"):
+                # Extrair lista de salários do DataFrame editado
+                salarios_mensais = df_editado["Remuneração (R$)"].tolist()
+                # Calcular 13º proporcional até a data de desligamento (usando a última remuneração como base para simplificar)
+                # Mas o 13º deve ser calculado sobre a média ou sobre o salário do mês de dezembro? Para simplicidade, usamos a média dos últimos 12 meses ou o salário do mês da rescisão.
+                # Aqui vamos usar o salário do último mês como base para o 13º proporcional.
+                ultimo_salario = salarios_mensais[-1] if salarios_mensais else salario_padrao
+                decimo_prop = calcular_decimo_terceiro_proporcional(data_adm_fgts, data_dem_fgts, ultimo_salario)
+                total_fgts = calcular_fgts_total(salarios_mensais, decimo_prop)
 
-                st.success(f"Total depositado (FGTS mensal + 13º): **R$ {total_fgts:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.info("Multa de 40% (demissão sem justa causa) seria: "
-                        f"R$ {total_fgts * 0.40:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.caption("Observação: o valor do 13º foi calculado proporcionalmente até a data de desligamento, conforme legislação.")
+                st.success(f"Total depositado (FGTS mensal + 13º proporcional): **R$ {total_fgts:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.info(f"Multa de 40% (demissão sem justa causa): R$ {total_fgts * 0.40:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.caption("Observação: o 13º proporcional foi calculado com base no último salário informado na tabela.")
