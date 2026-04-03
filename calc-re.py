@@ -236,7 +236,7 @@ with tab2:
     - Multa 40% sobre FGTS acumulado
     """)
 
-# -------------------- ABA 3: CALCULADORA DE FGTS (COM PERSISTÊNCIA) --------------------
+# -------------------- ABA 3: CALCULADORA DE FGTS (CORRIGIDA) --------------------
 with tab3:
     st.subheader("Simulação de FGTS Mensal (datas no formato dd/mm/aaaa)")
     col_fgts1, col_fgts2 = st.columns(2)
@@ -245,7 +245,6 @@ with tab3:
     with col_fgts2:
         data_dem_fgts_str = st.text_input("Data de Desligamento (dd/mm/aaaa)", value="20/10/2024", key="dem_fgts")
 
-    # Inicializa o estado da sessão para o DataFrame do FGTS
     if "df_fgts" not in st.session_state:
         st.session_state.df_fgts = None
 
@@ -257,7 +256,6 @@ with tab3:
         elif data_adm_fgts >= data_dem_fgts:
             st.error("Admissão deve ser anterior ao desligamento.")
         else:
-            # Gera lista de meses
             start = datetime(data_adm_fgts.year, data_adm_fgts.month, 1)
             end = datetime(data_dem_fgts.year, data_dem_fgts.month, 1)
             meses = []
@@ -266,36 +264,36 @@ with tab3:
                 meses.append(current)
                 current += relativedelta(months=1)
 
-            # Cria DataFrame com salário padrão (pode ser editado depois)
-            salario_padrao = st.number_input("Salário mensal padrão (R$)", min_value=0.0, value=3000.0, step=100.0, key="salario_padrao_fgts", help="Valor inicial para todas as competências. Depois edite célula por célula.")
+            salario_padrao = st.number_input("Salário mensal padrão (R$)", min_value=0.0, value=3000.0, step=100.0, key="salario_padrao_fgts")
             df_novo = pd.DataFrame({
                 "Competência": [m.strftime("%m/%Y") for m in meses],
                 "Remuneração (R$)": [salario_padrao] * len(meses)
             })
             st.session_state.df_fgts = df_novo
-            st.rerun()  # Força recarga para exibir o editor
+            st.rerun()
 
-    # Se o DataFrame já existe no estado, exibe o editor e permite edições persistentes
     if st.session_state.df_fgts is not None:
         st.write("Edite os valores de remuneração por mês conforme necessário (as alterações são salvas automaticamente):")
-        # O data_editor retorna o DataFrame modificado. Atualizamos o estado a cada edição.
         edited_df = st.data_editor(st.session_state.df_fgts, use_container_width=True, num_rows="dynamic", key="editor_fgts")
-        # Atualiza o estado com as alterações feitas pelo usuário
         st.session_state.df_fgts = edited_df
 
         if st.button("Calcular FGTS Total", key="calc_fgts"):
-            # Pega os salários do DataFrame atual
-            salarios_mensais = st.session_state.df_fgts["Remuneração (R$)"].tolist()
-            data_adm_fgts = parse_brasil_date(data_adm_fgts_str)
-            data_dem_fgts = parse_brasil_date(data_dem_fgts_str)
-            if data_adm_fgts and data_dem_fgts:
-                ultimo_salario = salarios_mensais[-1] if salarios_mensais else 0
-                decimo_prop = calcular_decimo_terceiro_proporcional(data_adm_fgts, data_dem_fgts, ultimo_salario)
-                total_fgts = calcular_fgts_total(salarios_mensais, decimo_prop)
-                st.success(f"Total depositado (FGTS mensal + 13º proporcional): **R$ {total_fgts:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.info(f"Multa de 40% (demissão sem justa causa): R$ {total_fgts * 0.40:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-                st.caption("O 13º proporcional foi calculado com base no último salário informado na tabela.")
+            data_adm = parse_brasil_date(data_adm_fgts_str)
+            data_dem = parse_brasil_date(data_dem_fgts_str)
+            if not data_adm or not data_dem:
+                st.error("Datas de admissão/desligamento inválidas. Verifique o formato dd/mm/aaaa.")
+            elif data_adm >= data_dem:
+                st.error("Data de admissão deve ser anterior ao desligamento.")
             else:
-                st.error("Datas de admissão/desligamento inválidas.")
+                salarios_mensais = st.session_state.df_fgts["Remuneração (R$)"].tolist()
+                if not salarios_mensais:
+                    st.error("Nenhum salário informado.")
+                else:
+                    ultimo_salario = salarios_mensais[-1]
+                    decimo_prop = calcular_decimo_terceiro_proporcional(data_adm, data_dem, ultimo_salario)
+                    total_fgts = calcular_fgts_total(salarios_mensais, decimo_prop)
+                    st.success(f"Total depositado (FGTS mensal + 13º proporcional): **R$ {total_fgts:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.info(f"Multa de 40% (demissão sem justa causa): R$ {total_fgts * 0.40:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.caption("O 13º proporcional foi calculado com base no último salário informado na tabela.")
     else:
         st.info("Clique em 'Gerar Competências' para criar a tabela de meses e começar a editar.")
