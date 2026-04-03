@@ -35,6 +35,7 @@ fpdf>=1.7.2
 fpdf2>=2.7.4
 gspread>=5.8.0
 google-auth>=2.17.0
+reportlab>=4.0.8
 
 # Observação:
 # Se algum script antigo usar a versão velha do fpdf (sem suporte a UTF-8),
